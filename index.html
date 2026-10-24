@@ -17,5 +17,23 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Белый экран — худший способ сообщить об ошибке. Если через 5 секунд
+      // приложение не смонтировалось (не та сборка на хостинге, старый WebView,
+      // заблокированный JS), пишем об этом словами.
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.childElementCount > 0) return;
+        root.innerHTML =
+          '<div style="margin:0 auto;max-width:34em;padding:14vh 24px;' +
+          'font:15px/1.6 system-ui,sans-serif;color:#cdd8c6;text-align:center">' +
+          '<h1 style="font-size:19px;margin:0 0 10px">Приложение не загрузилось</h1>' +
+          '<p style="margin:0 0 8px">Страница открылась, но код игры не запустился.</p>' +
+          '<p style="margin:0;color:#8e9c86">Частая причина: на хостинг выложены исходники репозитория, ' +
+          "а не собранная папка <code>dist</code> (на GitHub Pages источник должен быть GitHub Actions). " +
+          "Ещё варианты: очень старый браузер или отключённый JavaScript.</p></div>";
+        document.body.style.background = "#0d1210";
+      }, 5000);
+    </script>
   </body>
 </html>
