@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import Table from "./Table";
+import { BALL_COLORS } from "./balls";
 import BallIcon from "./BallIcon";
 import { type Game } from "../shared/game";
 import type { CueStroke } from "../shared/rendering";
@@ -36,6 +37,8 @@ export type MiniProps = {
   onShoot: (power: number) => void;
   /** Inside Telegram the client draws its own back button over ours. */
   telegram: boolean;
+  /** Short message shown over the table; empty most of the time. */
+  toast: string;
   /** Camera: raking three-quarter view or straight down on the cloth. */
   view: "angled" | "top";
   onToggleView: () => void;
@@ -78,7 +81,6 @@ export default function MiniApp(p: MiniProps) {
   const rotated = useLandscapeFrame(p.screen === "game");
   // Online is a placeholder until a game server is connected to the build.
   const soon = p.onlineAvailable === false;
-  const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
   const myTurn = p.mode === "practice" || (p.canAim && !p.isWaiting);
   const group =
     p.mode === "practice"
@@ -110,19 +112,51 @@ export default function MiniApp(p: MiniProps) {
             resetKey={p.resetKey}
             strokeRef={p.strokeRef}
           />
-          {pocketed.length > 0 && (
-            <div className="mini-pocketed">
-              {pocketed.slice(-7).map((b) => (
-                <BallIcon key={b.id} n={b.id} small />
-              ))}
-            </div>
-          )}
+          <div className="mini-score">
+            {p.mode === "practice" ? (
+              <div className="mini-team">
+                <Dots ids={[...SOLIDS, 8, ...STRIPES]} game={g} />
+              </div>
+            ) : (
+              <>
+                <div
+                  className={`mini-team${myTurn && !g.moving ? " is-active" : ""}`}
+                >
+                  <span className="mini-team-name">
+                    {p.players[p.myIndex]?.name || "Ты"}
+                  </span>
+                  <Dots
+                    ids={groupBalls(g.groups[p.myIndex])}
+                    game={g}
+                    muted={!g.groups[p.myIndex]}
+                  />
+                </div>
+                <div
+                  className={`mini-team is-right${!myTurn && !g.moving ? " is-active" : ""}`}
+                >
+                  <Dots
+                    ids={groupBalls(g.groups[1 - p.myIndex])}
+                    game={g}
+                    muted={!g.groups[1 - p.myIndex]}
+                  />
+                  <span className="mini-team-name">
+                    {p.players[1 - p.myIndex]?.name || "Соперник"}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
           {g.winner === null && !p.isWaiting && (
             <CueControl
               key={g.shots}
               enabled={myTurn && !g.moving && !p.preparing}
               onShoot={p.onShoot}
             />
+          )}
+          {p.toast && (
+            <div className="mini-toast" role="status">
+              {p.toast}
+            </div>
           )}
           {/* Telegram floats its own ⋯ and ✕ over the top corner of the
               WebView, so every control of ours lives along the bottom. */}
@@ -314,6 +348,51 @@ export default function MiniApp(p: MiniProps) {
   );
 }
 
+const SOLIDS = [1, 2, 3, 4, 5, 6, 7];
+const STRIPES = [9, 10, 11, 12, 13, 14, 15];
+/** The balls a player still has to clear, with the 8 as the last one. */
+function groupBalls(group: "solids" | "stripes" | null) {
+  return [...(group === "stripes" ? STRIPES : SOLIDS), 8];
+}
+/**
+ * The scoreboard every pool app has: one dot per ball, in ball colours,
+ * dimmed as they drop. No words — the colours say everything.
+ */
+function Dots({
+  ids,
+  game,
+  muted = false,
+}: {
+  ids: number[];
+  game: Game;
+  muted?: boolean;
+}) {
+  // The 8 only lights up once the player's own group is gone.
+  const locked = ids.some(
+    (id) => id !== 8 && !game.balls.find((b) => b.id === id)?.pocketed,
+  );
+  return (
+    <span className="mini-dots">
+      {ids.map((id) => {
+        const gone = !!game.balls.find((b) => b.id === id)?.pocketed;
+        return (
+          <i
+            key={id}
+            className={`${gone ? "is-gone" : ""}${id > 8 ? " is-striped" : ""}${
+              id === 8 && locked ? " is-locked" : ""
+            }`}
+            style={
+              {
+                "--dot": muted ? "#64707f" : BALL_COLORS[id],
+              } as React.CSSProperties
+            }
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 /** True while a landscape-only screen has to be rotated inside a portrait phone. */
 function useLandscapeFrame(active: boolean) {
   const [rotated, setRotated] = useState(false);
@@ -352,6 +431,9 @@ function CueControl({
 }) {
   const [pull, setPull] = useState(0);
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  // The release reads the ref, never the state: on a slow frame React has not
+  // re-rendered yet, and a shot charged to 60 % went off as a zero-power tap.
+  const held = useRef(0);
   const power = Math.min(1, pull / CUE_TRAVEL);
   const down = (e: React.PointerEvent) => {
     if (!enabled || drag.current) return;
@@ -362,15 +444,17 @@ function CueControl({
     if (drag.current?.id !== e.pointerId) return;
     // The frame is turned 90°: pulling the cue "down" the screen the player
     // sees is a drag towards the physical left edge of the phone.
-    const held = e.currentTarget.closest(".is-rotated")
+    const travel = e.currentTarget.closest(".is-rotated")
       ? drag.current.x - e.clientX
       : e.clientY - drag.current.y;
-    setPull(Math.max(0, Math.min(CUE_TRAVEL * 1.12, held)));
+    held.current = Math.max(0, Math.min(CUE_TRAVEL * 1.12, travel));
+    setPull(held.current);
   };
   const up = (e: React.PointerEvent) => {
     if (drag.current?.id !== e.pointerId) return;
     drag.current = null;
-    const charged = Math.min(1, pull / CUE_TRAVEL);
+    const charged = Math.min(1, held.current / CUE_TRAVEL);
+    held.current = 0;
     setPull(0);
     if (enabled && charged > 0.07) onShoot(Math.max(0.08, charged));
   };
@@ -379,13 +463,18 @@ function CueControl({
   const key = (e: React.KeyboardEvent) => {
     if (!enabled) return;
     const step = e.shiftKey ? CUE_TRAVEL / 20 : CUE_TRAVEL / 5;
+    const set = (v: number) => {
+      held.current = v;
+      setPull(v);
+    };
     if (e.key === "ArrowDown" || e.key === "ArrowRight")
-      setPull((v) => Math.min(CUE_TRAVEL, v + step));
+      set(Math.min(CUE_TRAVEL, held.current + step));
     else if (e.key === "ArrowUp" || e.key === "ArrowLeft")
-      setPull((v) => Math.max(0, v - step));
+      set(Math.max(0, held.current - step));
     else if (e.key === "Enter" || e.key === " ") {
-      if (power > 0.07) onShoot(Math.max(0.08, power));
-      setPull(0);
+      const charged = Math.min(1, held.current / CUE_TRAVEL);
+      set(0);
+      if (charged > 0.07) onShoot(Math.max(0.08, charged));
     } else return;
     e.preventDefault();
   };

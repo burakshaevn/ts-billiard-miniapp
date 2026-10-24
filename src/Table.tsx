@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { type Game, WIDTH, HEIGHT, RADIUS, POCKETS } from "../shared/game";
 import { createTableBody } from "./tableScene";
+import { BALL_COLORS } from "./balls";
 import { CUSHION_SEGMENTS, POCKET_CAPTURE_RADIUS } from "../shared/table";
 import {
   sampleSnapshots,
@@ -11,24 +11,6 @@ import {
   type CueStroke,
 } from "../shared/rendering";
 
-export const BALL_COLORS = [
-  "#f9f5e8",
-  "#efbe28",
-  "#2868b5",
-  "#df493a",
-  "#824eaa",
-  "#e98b28",
-  "#2e8e6c",
-  "#a13236",
-  "#14191b",
-  "#efbe28",
-  "#2868b5",
-  "#df493a",
-  "#824eaa",
-  "#e98b28",
-  "#2e8e6c",
-  "#a13236",
-];
 type Props = {
   gameRef: React.RefObject<Game>;
   angleRef: React.RefObject<number>;
@@ -108,31 +90,33 @@ export default function Table({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
-    // ACES washed the cloth and the balls out; neutral keeps them saturated.
-    renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.toneMappingExposure = 1.04;
+    // No tone mapping: the cloth and the balls are painted in the exact
+    // colours we want, and every curve pulled them off-tint.
+    renderer.toneMapping = THREE.NoToneMapping;
     host.appendChild(renderer.domElement);
     renderer.domElement.setAttribute(
       "aria-label",
       "3D-бильярдный стол. Проведи по сукну, чтобы повернуть кий вокруг битка.",
     );
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
     // The table is always shown along its long side; a portrait phone rotates
     // the whole screen instead (see .is-rotated).
     const VIEWS = {
       angled: new THREE.Vector3(0.18, 12.5, 10).normalize(),
       top: new THREE.Vector3(0, 1, 0.0001).normalize(),
     };
+    // Straight down is shot through a long lens: the rails stay parallel and
+    // the table reads like a board, not like a photo of a board.
+    const FOV = { angled: 36, top: 15 };
     const viewDirection = VIEWS[view].clone();
-    const pmrem = new THREE.PMREMGenerator(renderer),
-      envScene = new RoomEnvironment(),
-      env = pmrem.fromScene(envScene, 0.06);
-    scene.environment = env.texture;
-    scene.environmentIntensity = 0.45;
-    scene.add(new THREE.HemisphereLight(0xdbe9ef, 0x15100c, 0.42));
-    const key = new THREE.DirectionalLight(0xfff4df, 2.3);
-    key.position.set(-3.5, 8, 1.5);
+    // Flat studio light: a wide ambient plus one soft lamp overhead. No
+    // environment map, no spot, no rim — nothing that can glare.
+    // Lambert divides by pi, so these numbers look large: together they add
+    // up to roughly "the cloth is shown in the colour it was painted".
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const key = new THREE.DirectionalLight(0xffffff, 0.95);
+    key.position.set(2.4, 11, 3.6);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.left = -8;
@@ -141,30 +125,10 @@ export default function Table({
     key.shadow.camera.bottom = -6;
     key.shadow.normalBias = 0.006;
     key.shadow.bias = -0.00008;
-    key.shadow.radius = 2.2;
+    key.shadow.radius = 2;
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa6c9d6, 0.7);
-    fill.position.set(5, 5, -5);
-    scene.add(fill);
-    // Rim light along the far rail: the balls get a bright edge and read as
-    // spheres instead of flat discs.
-    const rim = new THREE.DirectionalLight(0xfff0cf, 1.1);
-    rim.position.set(2, 2.4, -9);
-    scene.add(rim);
-    // A real hall lamp hangs low over the cloth: bright centre, darker rails.
-    const overhead = new THREE.SpotLight(
-      0xfffbe8,
-      110,
-      26,
-      Math.PI * 0.36,
-      0.85,
-      2,
-    );
-    overhead.position.set(0, 6.4, 0);
-    overhead.target.position.set(0, 0, 0);
-    scene.add(overhead, overhead.target);
-    const material = (color: string, roughness = 0.55, metalness = 0) =>
-      new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    const material = (color: string) =>
+      new THREE.MeshLambertMaterial({ color });
     createTableBody(scene);
     const balls = new Map<number, THREE.Mesh>();
     const falling = new Map<
@@ -174,15 +138,10 @@ export default function Table({
     for (const b of gameRef.current.balls) {
       const m = new THREE.Mesh(
         new THREE.SphereGeometry(RADIUS, 48, 32),
-        new THREE.MeshPhysicalMaterial({
+        // Matte: the shading only rounds the ball off, there is no highlight
+        // to swallow the number.
+        new THREE.MeshLambertMaterial({
           map: ballTexture(b.id, renderer.capabilities.getMaxAnisotropy()),
-          // Polished, but not a mirror: a hard clearcoat turned the numbers
-          // into a white blob of glare on a phone screen.
-          roughness: 0.22,
-          metalness: 0,
-          clearcoat: 0.35,
-          clearcoatRoughness: 0.18,
-          envMapIntensity: 0.45,
         }),
       );
       m.position.set(b.x, RADIUS + 0.04, b.y);
@@ -199,65 +158,78 @@ export default function Table({
     stick.rotation.z = -0.18;
     cue.add(stick);
     const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.027, 0.048, 2.2, 16),
-      material("#d9c29a", 0.35),
+      new THREE.CylinderGeometry(0.027, 0.046, 2.2, 16),
+      material("#e4b07a"),
     );
     shaft.rotation.z = -Math.PI / 2;
     shaft.position.x = -RADIUS - 0.04 - 1.1;
     stick.add(shaft);
     const butt = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.048, 0.062, 1.35, 16),
-      material("#3d2520", 0.3),
+      new THREE.CylinderGeometry(0.046, 0.058, 1.35, 16),
+      material("#d2792f"),
     );
     butt.rotation.z = -Math.PI / 2;
     butt.position.x = -RADIUS - 0.04 - 2.2 - 0.675;
     stick.add(butt);
     const tip = new THREE.Mesh(
       new THREE.CylinderGeometry(0.03, 0.03, 0.065, 12),
-      material("#5caaa3"),
+      material("#f2f3f1"),
     );
     tip.rotation.z = -Math.PI / 2;
     tip.position.x = -RADIUS - 0.0325;
     stick.add(tip);
     scene.add(cue);
-    // Two short guides, like every mobile pool game: a stub in front of the
-    // cue ball for the direction, and one on the object ball for the cut.
-    const line = (color: number, opacity: number) => {
-      const l = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(),
-          new THREE.Vector3(),
-        ]),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity }),
+    // The guides every pool app draws: a line out of the cue ball to the
+    // circle where it will touch the object ball, and a second line showing
+    // where that object ball leaves. Painted as thin strips of cloth instead
+    // of GL lines, because a GL line is always one pixel wide.
+    const stripeGeometry = new THREE.PlaneGeometry(1, 1);
+    const stripe = (opacity: number) => {
+      const m = new THREE.Mesh(
+        stripeGeometry,
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+        }),
       );
-      scene.add(l);
-      return l;
+      m.rotation.order = "YXZ";
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 3;
+      scene.add(m);
+      return m;
     };
-    const aim = line(0xeaf7e4, 0.75),
-      target = line(0xffe071, 0.95);
+    const aim = stripe(0.9),
+      target = stripe(0.62);
+    const GUIDE_Y = 0.075;
     const setLine = (
-      l: THREE.Line,
+      l: THREE.Mesh,
       x1: number,
       z1: number,
       x2: number,
       z2: number,
+      width: number,
     ) => {
-      const a = l.geometry.attributes.position as THREE.BufferAttribute;
-      a.setXYZ(0, x1, 0.062, z1);
-      a.setXYZ(1, x2, 0.062, z2);
-      a.needsUpdate = true;
-      l.geometry.computeBoundingSphere();
+      const dx = x2 - x1,
+        dz = z2 - z1;
+      l.position.set((x1 + x2) / 2, GUIDE_Y, (z1 + z2) / 2);
+      l.rotation.y = -Math.atan2(dz, dx);
+      l.scale.set(Math.max(0.001, Math.hypot(dx, dz)), width, 1);
     };
     const ghost = new THREE.Mesh(
-      new THREE.RingGeometry(RADIUS * 0.82, RADIUS, 40),
+      new THREE.RingGeometry(RADIUS - 0.028, RADIUS, 48),
       new THREE.MeshBasicMaterial({
-        color: 0xf2fff2,
+        color: 0xffffff,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.92,
+        depthWrite: false,
         side: THREE.DoubleSide,
       }),
     );
     ghost.rotation.x = -Math.PI / 2;
+    ghost.renderOrder = 4;
+    ghost.position.y = GUIDE_Y;
     scene.add(ghost);
     const raycaster = new THREE.Raycaster(),
       mouse = new THREE.Vector2(),
@@ -355,6 +327,7 @@ export default function Table({
         h = host.clientHeight;
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(1, h);
+      camera.fov = FOV[next];
       const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const right = new THREE.Vector3()
         .crossVectors(new THREE.Vector3(0, 1, 0), viewDirection)
@@ -365,15 +338,16 @@ export default function Table({
       // Corners of the wooden body only: the soft floor shadow may be cropped,
       // the table itself never is.
       const corners: THREE.Vector3[] = [];
-      for (const x of [-6.1, 6.1])
-        for (const y of [-0.2, 0.18])
-          for (const z of [-3.4, 3.4]) corners.push(new THREE.Vector3(x, y, z));
+      for (const x of [-6.12, 6.12])
+        for (const y of [-0.12, 0.27])
+          for (const z of [-3.42, 3.42])
+            corners.push(new THREE.Vector3(x, y, z));
       // Perspective makes the near rail project wider than the far one, so the
       // fit is iterative: centre the table in the frame, then zoom to it.
       const ndc = new THREE.Vector3(),
         target = new THREE.Vector3(0, -0.02, 0);
-      let distance = 14;
-      for (let pass = 0; pass < 5; pass++) {
+      let distance = 14 * (36 / camera.fov);
+      for (let pass = 0; pass < 6; pass++) {
         camera.position.copy(target).addScaledVector(viewDirection, distance);
         camera.lookAt(target);
         camera.updateMatrixWorld();
@@ -553,18 +527,11 @@ export default function Table({
             break;
           }
         }
-        // Short stub out of the cue ball: direction only, no path to trace.
-        const stub = Math.min(dist, RADIUS * 2 + 0.55);
-        setLine(
-          aim,
-          b.x + dx * RADIUS,
-          b.y + dz * RADIUS,
-          b.x + dx * stub,
-          b.y + dz * stub,
-        );
+        // Cue ball to the contact point, then the circle it will stop in.
         const gx = b.x + dx * dist,
           gz = b.y + dz * dist;
-        ghost.position.set(gx, 0.062, gz);
+        setLine(aim, b.x + dx * RADIUS, b.y + dz * RADIUS, gx, gz, 0.036);
+        ghost.position.set(gx, GUIDE_Y, gz);
         // Where the object ball leaves the collision: centre to centre.
         if (hit) {
           const ox = hit.x - gx,
@@ -574,8 +541,9 @@ export default function Table({
             target,
             hit.x,
             hit.y,
-            hit.x + (ox / len) * 1.15,
-            hit.y + (oz / len) * 1.15,
+            hit.x + (ox / len) * 1.25,
+            hit.y + (oz / len) * 1.25,
+            0.03,
           );
         }
         target.visible = !!hit;
@@ -608,9 +576,6 @@ export default function Table({
         }
       });
       textures.forEach((t) => t.dispose());
-      env.dispose();
-      envScene.dispose();
-      pmrem.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };

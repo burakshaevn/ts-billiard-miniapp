@@ -81,8 +81,10 @@ function App() {
   const strokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [power, setPower] = useState(0.65),
     [sound, setSound] = useState(() => load("luza-sound", true)),
+    // Straight down by default: that is how a pool game on a phone looks,
+    // and the whole table fits the screen without perspective squash.
     [view, setView] = useState<"angled" | "top">(() =>
-      load<string>("luza-view", "angled") === "top" ? "top" : "angled",
+      load<string>("luza-view", "top") === "angled" ? "angled" : "top",
     );
   // null = still resolving the server address, false = practice-only build.
   const [onlineAvailable, setOnlineAvailable] = useState<boolean | null>(null);
@@ -642,9 +644,12 @@ function App() {
     setPage(next);
   }
   const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
+  // On the rotated game screen the toast is drawn inside the frame instead:
+  // floating over the physical bottom edge, it covered the cue.
+  const gameToast = compact && screen === "game";
   const overlays = (
     <>
-      {toast && (
+      {toast && !gameToast && (
         <div className="toast" role="status">
           <span>
             <Check size={16} />
@@ -954,6 +959,7 @@ function App() {
           telegram={
             isTelegramClient() && !!window.Telegram?.WebApp?.BackButton?.show
           }
+          toast={gameToast ? toast : ""}
           view={view}
           onToggleView={toggleView}
           canAim={canAim}

@@ -1174,6 +1174,8 @@ footer {
 .toast {
   position: fixed;
   z-index: 100;
+  /* A message must never swallow a gesture meant for the table. */
+  pointer-events: none;
   bottom: 25px;
   left: 50%;
   transform: translateX(-50%);
@@ -1202,6 +1204,7 @@ footer {
   flex-shrink: 0;
 }
 .toast > button {
+  pointer-events: auto;
   margin-left: 8px;
 }
 .modal-backdrop {

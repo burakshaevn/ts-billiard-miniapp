@@ -277,12 +277,12 @@ body.mini-mode {
 /* Game screen: the table owns the whole frame, chrome floats above it. */
 .mini-app-game {
   padding: 0;
-  /* The table floats in a dark room, not on a flat black rectangle. */
+  /* Neutral, almost black: nothing competes with the blue cloth. */
   background: radial-gradient(
-    125% 95% at 50% 40%,
-    #1a2a22 0%,
-    #101713 48%,
-    #070a09 100%
+    120% 90% at 50% 45%,
+    #171a20 0%,
+    #0e1014 45%,
+    #07080a 100%
   );
 }
 /* A pool table is 2:1, so a portrait phone turns the whole screen sideways.
@@ -324,7 +324,7 @@ body.mini-mode {
     calc(8px + var(--frame-bottom, 0px)) calc(10px + var(--frame-left, 0px));
   min-height: 44px;
   pointer-events: none;
-  background: linear-gradient(0deg, #080c0ae6 15%, #080c0a00);
+  background: linear-gradient(0deg, #07080ae6 15%, #07080a00);
 }
 .mini-app-game .mini-bar button {
   pointer-events: auto;
@@ -334,13 +334,15 @@ body.mini-mode {
   height: 38px;
   flex-basis: 38px;
   border-radius: 11px;
-  background: #151c17cc;
+  color: #e7ecf3;
+  background: #161920cc;
+  border-color: #2a2f3a;
   backdrop-filter: blur(4px);
 }
 .mini-app-game .mini-icon-button[aria-pressed="true"] {
-  color: #16200f;
-  background: linear-gradient(180deg, #d9f294, #b2d06c);
-  border-color: #65813f;
+  color: #10141a;
+  background: #e9eef6;
+  border-color: #e9eef6;
 }
 .mini-status {
   flex: 1;
@@ -357,7 +359,7 @@ body.mini-mode {
   color: #e3e9da;
 }
 .mini-status strong.is-turn {
-  color: var(--lime);
+  color: #7cc6f5;
 }
 .mini-status span {
   font-size: 10.5px;
@@ -367,23 +369,85 @@ body.mini-mode {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Pocketed balls hang under the top edge, away from both top corners. */
-.mini-pocketed {
+/* Scoreboard: who is at the table and which balls are left. It hangs in the
+   middle of the top edge — both top corners belong to Telegram's own chrome. */
+.mini-score {
   position: absolute;
   z-index: 2;
-  top: calc(6px + var(--frame-top, 0px));
+  top: calc(5px + var(--frame-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #0d1210b3;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 190px);
+  pointer-events: none;
 }
-.mini-pocketed .ball-icon.small {
-  width: 16px;
-  height: 16px;
-  font-size: 7.5px;
+.mini-team {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #0b0d12a8;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.mini-team.is-active {
+  background: #142033cc;
+  box-shadow: inset 0 0 0 1px #4b90d4;
+}
+.mini-team-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e3e9f1;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-dots {
+  display: flex;
+  gap: 3px;
+}
+.mini-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.mini-dots i.is-striped {
+  background: linear-gradient(
+    180deg,
+    #f4f1e6 0 26%,
+    var(--dot) 26% 74%,
+    #f4f1e6 74%
+  );
+}
+.mini-dots i.is-gone {
+  background: #ffffff1a;
+}
+.mini-dots i.is-locked {
+  opacity: 0.35;
+}
+/* Messages float over the table inside the rotated frame, so they read the
+   right way up and never sit on top of the cue. */
+.mini-toast {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(50px + var(--frame-bottom, 0px));
+  transform: translateX(-50%);
+  max-width: min(76%, 430px);
+  padding: 8px 13px;
+  border-radius: 11px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-align: center;
+  color: #e7ecf3;
+  background: #10141bdb;
+  box-shadow: inset 0 0 0 1px #ffffff1f;
+  pointer-events: none;
 }
 /* The cue the player actually handles, drawn beside the table. */
 .mini-cue {
@@ -399,8 +463,8 @@ body.mini-mode {
   width: 62px;
   padding: 8px 0 10px;
   border-radius: 18px;
-  background: #0c110fa6;
-  border: 1px solid #222c24;
+  background: #0b0d12a6;
+  border: 1px solid #242935;
   touch-action: none;
   cursor: grab;
   user-select: none;
@@ -408,8 +472,8 @@ body.mini-mode {
 }
 .mini-cue.is-pulled {
   cursor: grabbing;
-  background: #0c110fd9;
-  border-color: #3c5235;
+  background: #0b0d12d9;
+  border-color: #3f5570;
 }
 .mini-cue.is-off {
   opacity: 0.35;
@@ -436,18 +500,18 @@ body.mini-mode {
   width: 7px;
   height: 7px;
   border-radius: 2px 2px 0 0;
-  background: #7fd2c6;
+  background: #f1f3f0;
 }
 .mini-cue-shaft {
   width: 9px;
   flex: 1;
-  background: linear-gradient(90deg, #a98a5e, #efd9ac 45%, #9d7c51);
+  background: linear-gradient(90deg, #b57f44, #f0c388 45%, #a9743c);
 }
 .mini-cue-butt {
   width: 13px;
   height: 64px;
   border-radius: 0 0 4px 4px;
-  background: linear-gradient(90deg, #35211c, #6b4133 45%, #2b1a16);
+  background: linear-gradient(90deg, #a2541a, #ef9340 45%, #934914);
 }
 .mini-cue-power {
   display: flex;
@@ -457,7 +521,7 @@ body.mini-mode {
   line-height: 1.1;
   font-size: 12px;
   font-weight: 700;
-  color: var(--lime);
+  color: #9fd4ff;
   font-variant-numeric: tabular-nums;
 }
 .mini-overlay {
