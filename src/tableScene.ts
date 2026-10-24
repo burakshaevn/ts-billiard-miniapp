@@ -8,16 +8,12 @@ import {
 } from "../shared/table";
 
 /**
- * Flat, glare-free table in the style of the mobile pool apps. No wood, no
- * brass, no mirror highlights — a shiny rail threw a white streak across the
- * cloth and made the balls hard to read on a phone.
+ * Flat, glare-free table in the style of the mobile pool apps: one bright
+ * blue cloth, graphite rails, silver pocket collars, white sights. No wood,
+ * no brass, no mirror highlights — a shiny rail threw a white streak across
+ * the cloth and made the balls hard to read on a phone.
  *
- * Every colour of the table lives here, so the look is one edit away. The
- * woodwork is the wine black of the Amazing Pool logo and the collars are its
- * cream; the cloth stays blue on purpose — seven of the fifteen balls are red,
- * orange or maroon and they disappear on a cherry cloth. To try one anyway,
- * give `cloth*` a dark red ramp (e.g. #7e1c33 → #2c0912) and `cushion` a
- * slightly lighter shade of it.
+ * Every colour of the table lives here, so the look is one edit away.
  */
 export const TABLE_COLORS = {
   clothCenter: "#54c2e9",
@@ -25,12 +21,12 @@ export const TABLE_COLORS = {
   clothEdge: "#2d7cae",
   clothCorner: "#21587f",
   cushion: "#3a89b8",
-  /** Rails and the lip under them: the dark wine frame of the logo. */
-  rail: "#3c1a23",
-  base: "#150a0e",
-  /** Pocket collars and sights: the cream of the logo's ball numbers. */
-  collar: "#e9dac6",
-  sight: "#f1e3d3",
+  /** Rails and the thin darker lip under them. */
+  rail: "#343a40",
+  base: "#15171b",
+  /** Pocket collars and the sights along the rails. */
+  collar: "#aeb4ba",
+  sight: "#e9edf0",
   pocketMouth: "#0c0e10",
   pocketBottom: "#070809",
 };

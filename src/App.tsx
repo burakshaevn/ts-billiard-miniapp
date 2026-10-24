@@ -544,8 +544,8 @@ function App() {
       tg.ready();
       tg.expand();
       setCompact(true);
-      tg.setHeaderColor?.("#0b0609");
-      tg.setBackgroundColor?.("#0b0609");
+      tg.setHeaderColor?.("#0d1210");
+      tg.setBackgroundColor?.("#0d1210");
       syncTelegramControls();
       const syncViewport = () => {
         const style = document.documentElement.style;
