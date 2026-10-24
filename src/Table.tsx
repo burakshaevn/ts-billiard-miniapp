@@ -44,6 +44,12 @@ type Props = {
   view?: "angled" | "top";
   canAim: boolean;
   power: number;
+  /**
+   * The game is being simulated right here (practice, a match against the
+   * bot in the browser) rather than arriving from the server, so draw the
+   * balls where they are instead of interpolating between snapshots.
+   */
+  live?: boolean;
   resetKey: number;
   strokeRef: React.RefObject<CueStroke | null>;
 };
@@ -88,13 +94,14 @@ export default function Table({
   view = "angled",
   canAim,
   power,
+  live = false,
   resetKey,
   strokeRef,
 }: Props) {
   const container = useRef<HTMLDivElement>(null),
     refit = useRef<(view: "angled" | "top") => void>(() => {}),
-    flags = useRef({ canAim, power, onAim, view });
-  flags.current = { canAim, power, onAim, view };
+    flags = useRef({ canAim, power, onAim, view, live });
+  flags.current = { canAim, power, onAim, view, live };
   useEffect(() => {
     const host = container.current!;
     let renderer: THREE.WebGLRenderer;
@@ -427,14 +434,19 @@ export default function Table({
       const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
       const g = gameRef.current;
-      if (!g.solo && g !== previousGame) {
+      // Server states arrive ~30 times a second as whole new objects, so
+      // they are buffered and replayed 70 ms late to look smooth. A game
+      // stepped locally changes in place 120 times a second and must be
+      // drawn directly — buffering it would freeze the table.
+      const interpolated = !g.solo && !flags.current.live;
+      if (interpolated && g !== previousGame) {
         snapshots.push({ time: now, balls: g.balls.map((b) => ({ ...b })) });
         if (snapshots.length > 14) snapshots.shift();
         previousGame = g;
       }
-      const visualBalls = g.solo
-        ? g.balls
-        : sampleSnapshots(snapshots, now - 70);
+      const visualBalls = interpolated
+        ? sampleSnapshots(snapshots, now - 70)
+        : g.balls;
       for (const b of visualBalls) {
         const m = balls.get(b.id)!;
         if (b.pocketed) {
@@ -489,7 +501,10 @@ export default function Table({
             angularSpeed * delta,
           );
       }
-      const b = g.balls.find((b) => b.id === 0)!,
+      // The cue and the aim marks belong to the ball as it is DRAWN, not as
+      // the state has it: online that is the interpolated position, locally
+      // the live one. Its screen position is published in `data-grip`.
+      const b = visualBalls.find((b) => b.id === 0) ?? g.balls[0],
         angle = angleRef.current,
         dx = Math.cos(angle),
         dz = Math.sin(angle);

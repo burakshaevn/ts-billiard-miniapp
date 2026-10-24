@@ -142,9 +142,34 @@ test("practice-only build: no server, no failed connections, balls come to rest"
   ).toBeVisible();
   // Without a server there is still a game: the bot match runs in the browser.
   await page.getByRole("button", { name: /Игра с ботом/ }).click();
-  await expect(page.locator(".mini-stage canvas")).toBeVisible();
+  const botCanvas = page.locator(".mini-stage canvas");
+  await expect(botCanvas).toBeVisible();
   await expect(page.locator(".mini-score .avatar.is-bot")).toHaveCount(1);
   await expect(page.getByText("Твой ход")).toBeVisible();
+  // And the balls must actually travel across the cloth: a locally played
+  // match must not go through the interpolation buffer meant for server
+  // snapshots, which would leave a frozen rack while the score ticked on.
+  // `data-grip` carries the cue ball as it is drawn, so it tells us where
+  // the renderer really put it.
+  const drawnCueBall = async () => {
+    // The attribute only exists while the cue is on the table, so read it
+    // when it is our turn — otherwise the check measures nothing.
+    await expect(botCanvas).toHaveAttribute("data-grip", /\d/);
+    const [, , x, y] = (await botCanvas.getAttribute("data-grip"))!
+      .split(",")
+      .map(Number);
+    return { x, y };
+  };
+  const before = await drawnCueBall();
+  await pullCue(page, 120);
+  await expect(page.getByText("Шары в движении")).toBeVisible();
+  // The bot answers in between; wait until the table is ours again.
+  await expect(page.getByText("Твой ход")).toBeVisible({ timeout: 90000 });
+  const after = await drawnCueBall();
+  expect(
+    Math.hypot(after.x - before.x, after.y - before.y),
+    "the table is frozen: the drawn balls never moved",
+  ).toBeGreaterThan(20);
   await page.getByRole("button", { name: "Назад в меню" }).click();
   await expect(
     page.getByRole("heading", { name: "Amazing Pool" }),

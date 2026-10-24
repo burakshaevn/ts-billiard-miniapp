@@ -391,9 +391,10 @@ body.mini-mode {
 }
 /* Telegram photos of both players: who is playing whom, right over the table. */
 .mini-avatar {
-  --avatar-size: 19px;
-  font-size: 9px;
+  --avatar-size: 23px;
+  font-size: 10px;
   border-width: 1px;
+  border-radius: 7px;
 }
 .mini-balls {
   display: flex;

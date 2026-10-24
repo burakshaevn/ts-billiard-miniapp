@@ -247,8 +247,8 @@ nav {
   text-align: left;
 }
 .avatar {
-  height: var(--avatar-size, 34px);
-  width: var(--avatar-size, 34px);
+  height: var(--avatar-size, 38px);
+  width: var(--avatar-size, 38px);
   flex-shrink: 0;
   overflow: hidden;
   display: grid;
@@ -256,8 +256,9 @@ nav {
   color: #ccdcc2;
   background: linear-gradient(140deg, #4a5645, #2a3529);
   border: 1px solid #67745b55;
-  border-radius: 50%;
-  font-size: 12px;
+  /* A rounded square, not a disc: the Telegram photo keeps more of itself. */
+  border-radius: 29%;
+  font-size: 13px;
   font-weight: 700;
 }
 .avatar img {
@@ -341,7 +342,7 @@ nav {
   background: #b7d5840c;
 }
 .top-avatar {
-  --avatar-size: 32px;
+  --avatar-size: 36px;
   padding: 0;
   border: 0;
   background: none;
@@ -1438,7 +1439,7 @@ input::placeholder {
     font-size: 8px;
   }
   .top-avatar {
-    --avatar-size: 29px;
+    --avatar-size: 33px;
   }
   main {
     padding: 27px 20px 0;
@@ -2001,7 +2002,7 @@ input::placeholder {
   overflow-y: auto;
 }
 .table-row {
-  --avatar-size: 30px;
+  --avatar-size: 34px;
   display: flex;
   align-items: center;
   gap: 10px;

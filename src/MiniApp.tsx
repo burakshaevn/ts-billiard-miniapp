@@ -47,6 +47,8 @@ export type MiniProps = {
   view: "angled" | "top";
   onToggleView: () => void;
   canAim: boolean;
+  /** The match is simulated in this browser, not streamed from a server. */
+  live: boolean;
   isWaiting: boolean;
   mode: "practice" | "searching" | "online" | "bot";
   players: { id: string; name: string; avatar?: string; bot?: boolean }[];
@@ -125,6 +127,7 @@ export default function MiniApp(p: MiniProps) {
             view={p.view}
             canAim={p.canAim && !p.isWaiting}
             power={p.power}
+            live={p.live}
             resetKey={p.resetKey}
             strokeRef={p.strokeRef}
           />

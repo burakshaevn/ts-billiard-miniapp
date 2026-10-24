@@ -1435,6 +1435,7 @@ function App() {
           view={view}
           onToggleView={toggleView}
           canAim={canAim}
+          live={mode !== "online"}
           isWaiting={isWaiting}
           mode={mode}
           players={players}
@@ -1655,6 +1656,7 @@ function App() {
                   view={view}
                   canAim={canAim && !isWaiting}
                   power={power}
+                  live={mode !== "online"}
                   resetKey={resetKey}
                   strokeRef={strokeRef}
                 />
