@@ -11,6 +11,31 @@ import {
   type CueStroke,
 } from "../shared/rendering";
 
+/**
+ * Aim marks on the cloth — the one place to tune them.
+ *
+ * Nothing is drawn between the cue ball and the object ball: only a short
+ * rounded stripe arriving at the contact circle, the circle itself, and a
+ * second stripe leaving the object ball. Lengths and widths are in table
+ * units, where one ball is 0.243 wide (`RADIUS * 2`).
+ */
+const AIM = {
+  /** Stripe that arrives at the ghost circle. */
+  contactLength: 0.34,
+  contactWidth: 0.075,
+  contactOpacity: 0.85,
+  /** Stripe that leaves the object ball, showing where it goes. */
+  targetLength: 0.38,
+  targetWidth: 0.07,
+  targetOpacity: 0.72,
+  /** Clearance between a ball edge and the start of a stripe. */
+  gap: 0.035,
+  /** The ghost circle drawn where the cue ball will stop. */
+  ghostWidth: 0.042,
+  ghostOpacity: 0.92,
+  /** Height above the cloth: high enough to never z-fight with the felt. */
+  y: 0.075,
+};
 type Props = {
   gameRef: React.RefObject<Game>;
   angleRef: React.RefObject<number>;
@@ -179,14 +204,23 @@ export default function Table({
     tip.position.x = -RADIUS - 0.0325;
     stick.add(tip);
     scene.add(cue);
-    // Aim marks, kept deliberately short so the cloth stays clean: a stub
-    // leaving the cue ball, a stub arriving at the contact point, the ghost
-    // circle itself and a short line out of the object ball. Painted as thin
-    // strips of cloth instead of GL lines, because a GL line is one pixel wide.
-    const stripeGeometry = new THREE.PlaneGeometry(1, 1);
-    const stripe = (opacity: number) => {
+    // Aim marks (see AIM above): two short rounded stripes next to the balls
+    // and the ghost circle, painted as pieces of cloth instead of GL lines —
+    // a GL line is always one pixel wide, whatever the screen.
+    const stripeGeometry = (length: number, width: number) => {
+      // A capsule: a rectangle closed by a half circle at each end. Built at
+      // its final size and never scaled, so the round caps stay round.
+      const r = width / 2,
+        half = Math.max(0.0001, length / 2 - r);
+      const shape = new THREE.Shape();
+      shape.absarc(half, 0, r, -Math.PI / 2, Math.PI / 2, false);
+      shape.absarc(-half, 0, r, Math.PI / 2, Math.PI * 1.5, false);
+      shape.closePath();
+      return new THREE.ShapeGeometry(shape, 12);
+    };
+    const stripe = (length: number, width: number, opacity: number) => {
       const m = new THREE.Mesh(
-        stripeGeometry,
+        stripeGeometry(length, width),
         new THREE.MeshBasicMaterial({
           color: 0xffffff,
           transparent: true,
@@ -196,43 +230,42 @@ export default function Table({
       );
       m.rotation.order = "YXZ";
       m.rotation.x = -Math.PI / 2;
+      m.position.y = AIM.y;
       m.renderOrder = 3;
       scene.add(m);
       return m;
     };
-    const nearGuide = stripe(0.92),
-      farGuide = stripe(0.82),
-      target = stripe(0.66);
-    const GUIDE_Y = 0.075;
-    /** Length of one aim stub, in table units (~2.5 ball diameters). */
-    const STUB = 0.6;
-    const setLine = (
-      l: THREE.Mesh,
-      x1: number,
-      z1: number,
-      x2: number,
-      z2: number,
-      width: number,
+    const contact = stripe(
+      AIM.contactLength,
+      AIM.contactWidth,
+      AIM.contactOpacity,
+    );
+    const target = stripe(AIM.targetLength, AIM.targetWidth, AIM.targetOpacity);
+    /** Lay a stripe along `angle`, with its far end at (x, z). */
+    const placeStripe = (
+      m: THREE.Mesh,
+      x: number,
+      z: number,
+      dirX: number,
+      dirZ: number,
+      length: number,
     ) => {
-      const dx = x2 - x1,
-        dz = z2 - z1;
-      l.position.set((x1 + x2) / 2, GUIDE_Y, (z1 + z2) / 2);
-      l.rotation.y = -Math.atan2(dz, dx);
-      l.scale.set(Math.max(0.001, Math.hypot(dx, dz)), width, 1);
+      m.position.set(x - dirX * (length / 2), AIM.y, z - dirZ * (length / 2));
+      m.rotation.y = -Math.atan2(dirZ, dirX);
     };
     const ghost = new THREE.Mesh(
-      new THREE.RingGeometry(RADIUS - 0.028, RADIUS, 48),
+      new THREE.RingGeometry(RADIUS - AIM.ghostWidth, RADIUS, 48),
       new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.92,
+        opacity: AIM.ghostOpacity,
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
     );
     ghost.rotation.x = -Math.PI / 2;
     ghost.renderOrder = 4;
-    ghost.position.y = GUIDE_Y;
+    ghost.position.y = AIM.y;
     scene.add(ghost);
     const raycaster = new THREE.Raycaster(),
       mouse = new THREE.Vector2(),
@@ -477,8 +510,7 @@ export default function Table({
         lastVisible = visible;
       }
       cue.visible = ghost.visible = visible;
-      if (!visible)
-        target.visible = nearGuide.visible = farGuide.visible = false;
+      if (!visible) target.visible = contact.visible = false;
       if (!visible && renderer.domElement.dataset.grip)
         delete renderer.domElement.dataset.grip;
       if (strokeRef.current) {
@@ -531,44 +563,39 @@ export default function Table({
             break;
           }
         }
-        // The circle where the cue ball stops, with a short stub at each end
-        // of the path: one leaving the cue ball, one arriving at the circle.
+        // The circle where the cue ball stops, with one short stripe coming
+        // into it. Nothing is drawn next to the cue ball itself.
         const gx = b.x + dx * dist,
           gz = b.y + dz * dist;
-        ghost.position.set(gx, GUIDE_Y, gz);
-        const span = dist - RADIUS * 2,
-          stub = Math.min(STUB, span * 0.42);
-        nearGuide.visible = farGuide.visible = visible && stub > 0.03;
-        if (stub > 0.03) {
-          setLine(
-            nearGuide,
-            b.x + dx * RADIUS,
-            b.y + dz * RADIUS,
-            b.x + dx * (RADIUS + stub),
-            b.y + dz * (RADIUS + stub),
-            0.034,
+        ghost.position.set(gx, AIM.y, gz);
+        // Keep the stripe clear of both balls, and drop it when a near-touching
+        // ball leaves no room for it.
+        const room = dist - RADIUS * 2 - AIM.gap * 2;
+        contact.visible = visible && room > AIM.contactLength;
+        if (contact.visible)
+          placeStripe(
+            contact,
+            gx - dx * (RADIUS + AIM.gap),
+            gz - dz * (RADIUS + AIM.gap),
+            dx,
+            dz,
+            AIM.contactLength,
           );
-          setLine(
-            farGuide,
-            gx - dx * (RADIUS + stub),
-            gz - dz * (RADIUS + stub),
-            gx - dx * RADIUS,
-            gz - dz * RADIUS,
-            0.034,
-          );
-        }
         // Where the object ball leaves the collision: centre to centre.
         if (hit) {
           const ox = hit.x - gx,
             oz = hit.y - gz,
-            len = Math.hypot(ox, oz) || 1;
-          setLine(
+            len = Math.hypot(ox, oz) || 1,
+            ux = ox / len,
+            uz = oz / len,
+            reach = RADIUS + AIM.gap + AIM.targetLength;
+          placeStripe(
             target,
-            hit.x + (ox / len) * RADIUS,
-            hit.y + (oz / len) * RADIUS,
-            hit.x + (ox / len) * 0.78,
-            hit.y + (oz / len) * 0.78,
-            0.03,
+            hit.x + ux * reach,
+            hit.y + uz * reach,
+            ux,
+            uz,
+            AIM.targetLength,
           );
         }
         target.visible = !!hit;
