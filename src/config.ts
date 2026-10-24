@@ -147,7 +147,9 @@ export type TelegramWebApp = {
     offClick: (cb: () => void) => void;
   };
   HapticFeedback?: {
-    impactOccurred?: (style: "light" | "medium" | "heavy") => void;
+    impactOccurred?: (
+      style: "light" | "medium" | "heavy" | "rigid" | "soft",
+    ) => void;
   };
   initDataUnsafe?: {
     start_param?: string;

@@ -8,24 +8,7 @@ async function cue(page: Page) {
     .split(",")
     .map(Number);
   const length = Math.hypot(gx - bx, gy - by) || 1;
-  return { gx, gy, ux: (gx - bx) / length, uy: (gy - by) / length };
-}
-
-/**
- * Play a shot the way a player does: grab the cue behind the ball, pull it
- * back and let go. `pixels` is the backswing on screen, which sets the power.
- */
-export async function pullCue(page: Page, pixels = 110) {
-  const { gx, gy, ux, uy } = await cue(page);
-  await page.mouse.move(gx, gy);
-  await page.mouse.down();
-  for (const step of [0.4, 0.75, 1]) {
-    await page.mouse.move(gx + ux * pixels * step, gy + uy * pixels * step, {
-      steps: 4,
-    });
-    await page.waitForTimeout(60);
-  }
-  await page.mouse.up();
+  return { gx, gy, bx, by, ux: (gx - bx) / length, uy: (gy - by) / length };
 }
 
 /** Swing the cue around the ball by dragging the cloth, without shooting. */
@@ -39,5 +22,31 @@ export async function swingCue(page: Page) {
     start.y + ux * 45 - uy * 25,
     { steps: 8 },
   );
+  await page.mouse.up();
+}
+
+/**
+ * Play a shot with the cue drawn beside the table: grab it, pull it back by
+ * `pixels` and let go. In the rotated phone frame "back" is a drag towards
+ * the physical left edge.
+ */
+export async function pullCue(page: Page, pixels = 120) {
+  const control = page.locator(".mini-cue");
+  await expect(control).toBeVisible();
+  const box = (await control.boundingBox())!;
+  const rotated = await page
+    .locator(".mini-app-game")
+    .evaluate((el) => el.classList.contains("is-rotated"));
+  const x = box.x + box.width / 2,
+    y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (const step of [0.4, 0.75, 1]) {
+    const travel = pixels * step;
+    await page.mouse.move(rotated ? x - travel : x, rotated ? y : y + travel, {
+      steps: 4,
+    });
+    await page.waitForTimeout(60);
+  }
   await page.mouse.up();
 }

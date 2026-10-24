@@ -40,9 +40,15 @@ test("mini app on a phone: menu, practice table, online match", async ({
   });
   expect(canvas.w).toBeGreaterThan(canvas.h * 1.5);
   expect(canvas.w).toBeGreaterThan(800);
-  // No shot button and no power slider: the cue itself is the control.
+  // No shot button and no power slider: a second cue beside the table is
+  // the only shot control, and the chrome stays clear of the top corners,
+  // where Telegram floats its own buttons.
   await expect(a.getByRole("button", { name: "Удар" })).toHaveCount(0);
-  await expect(a.getByRole("slider")).toHaveCount(0);
+  await expect(a.locator('input[type="range"]')).toHaveCount(0);
+  await expect(a.locator(".mini-cue")).toBeVisible();
+  const chrome = await a.locator(".mini-bar").boundingBox();
+  expect(chrome!.x).toBeLessThan(60);
+  expect(chrome!.y).toBe(0);
   await a.getByRole("button", { name: "Назад в меню" }).click();
   await expect(
     a.getByRole("heading", { name: "Пул «Восьмёрка»" }),
@@ -60,7 +66,7 @@ test("mini app on a phone: menu, practice table, online match", async ({
   await expect(b.getByText(/Ход: /)).toBeVisible();
   expect(await fits(a)).toBe(true);
 
-  await pullCue(a, 40);
+  await pullCue(a, 45);
   await expect(b.getByText("Шары в движении")).toBeVisible();
   await b.close();
   await expect(
@@ -90,9 +96,11 @@ test("practice-only build: no server, no failed connections, balls come to rest"
   // Dragging the cloth only turns the cue, it never fires a shot.
   await swingCue(page);
   await expect(page.getByText("Шары в движении")).toHaveCount(0);
-  // Pulling the cue back charges the power read-out, releasing it shoots.
-  await page.mouse.move(0, 0);
-  await pullCue(page, 70);
+  // The view can be switched to look straight down on the cloth.
+  await page.getByRole("button", { name: "Вид сверху" }).click();
+  await expect(page.getByRole("button", { name: "Вид сбоку" })).toBeVisible();
+  // Pulling the side cue back charges the power, releasing it shoots.
+  await pullCue(page, 80);
   await expect(page.getByText("Шары в движении")).toBeVisible();
   // A shot has to settle on its own; software rendering here is slow.
   await expect(page.getByText("Шары в движении")).toHaveCount(0, {

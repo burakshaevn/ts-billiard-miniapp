@@ -5,7 +5,6 @@ import {
   sampleSnapshots,
   cueGap,
   CUE_REST_GAP,
-  RELEASE_MS,
   STROKE_MS,
 } from "./rendering.ts";
 test("network interpolation has constant velocity instead of ease-in acceleration", () => {
@@ -26,19 +25,11 @@ test("cue returns to exact contact at the impulse time", () => {
   assert.ok(cueGap(stroke, 100 + STROKE_MS * 0.6, 0.8) > 0.6);
   assert.equal(cueGap(stroke, 100 + STROKE_MS, 0.8), 0);
 });
-test("a hand-pulled cue starts back where the player left it and reaches the ball on release", () => {
-  const holding = cueGap(null, 0, 0.5, 0.9);
-  assert.ok(
-    holding > CUE_REST_GAP + 0.5,
-    "holding the cue keeps it pulled back",
-  );
-  assert.equal(cueGap(null, 0, 0.5, 0), CUE_REST_GAP);
-  const stroke = { startedAt: 50, angle: 0, power: 0.9, pulled: true };
-  assert.ok(
-    Math.abs(cueGap(stroke, 50, 0.9) - holding) < 0.02,
-    "no jump on release",
-  );
-  assert.ok(cueGap(stroke, 50 + RELEASE_MS / 2, 0.9) < holding);
-  assert.equal(cueGap(stroke, 50 + RELEASE_MS, 0.9), 0);
-  assert.ok(RELEASE_MS < STROKE_MS);
+test("the cue rests at the ball and swings harder for a stronger shot", () => {
+  assert.equal(cueGap(null, 0, 0.5), CUE_REST_GAP);
+  const soft = { startedAt: 0, angle: 0, power: 0.2 },
+    hard = { startedAt: 0, angle: 0, power: 1 };
+  const top = (s: typeof soft) => cueGap(s, STROKE_MS * 0.6, s.power);
+  assert.ok(top(hard) > top(soft) + 0.5, "more power means a longer backswing");
+  assert.equal(cueGap(hard, STROKE_MS, 1), 0);
 });

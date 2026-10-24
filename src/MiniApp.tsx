@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -6,6 +6,7 @@ import {
   CircleHelp,
   Copy,
   Crosshair,
+  Eye,
   Flag,
   Gamepad2,
   History,
@@ -31,8 +32,11 @@ export type MiniProps = {
   strokeRef: React.RefObject<CueStroke | null>;
   resetKey: number;
   onAim: (angle: number) => void;
-  /** Power the player charged by pulling the cue back, 0..1. */
+  /** Power the player charged on the side cue, 0..1. */
   onShoot: (power: number) => void;
+  /** Camera: raking three-quarter view or straight down on the cloth. */
+  view: "angled" | "top";
+  onToggleView: () => void;
   canAim: boolean;
   isWaiting: boolean;
   mode: "practice" | "searching" | "online";
@@ -44,6 +48,8 @@ export type MiniProps = {
   onlineAvailable: boolean | null;
   population: number;
   power: number;
+  /** True between the release and the moment the tip reaches the ball. */
+  preparing: boolean;
   busy: boolean;
   searchSeconds: number;
   inviteCopied: boolean;
@@ -68,8 +74,6 @@ export default function MiniApp(p: MiniProps) {
   // A pool table is wide: on a portrait phone the whole game screen is turned
   // sideways so the table fills the display instead of being squeezed.
   const rotated = useLandscapeFrame(p.screen === "game");
-  // Power is whatever the cue was pulled back to; nothing to show at rest.
-  const [charge, setCharge] = useState<number | null>(null);
   // Online is a placeholder until a game server is connected to the build.
   const soon = p.onlineAvailable === false;
   const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
@@ -98,14 +102,29 @@ export default function MiniApp(p: MiniProps) {
             gameRef={p.gameRef}
             angleRef={p.angleRef}
             onAim={p.onAim}
-            onCharge={setCharge}
-            onShoot={p.onShoot}
+            view={p.view}
             canAim={p.canAim && !p.isWaiting}
             power={p.power}
             resetKey={p.resetKey}
             strokeRef={p.strokeRef}
           />
-          <header className="mini-bar">
+          {pocketed.length > 0 && (
+            <div className="mini-pocketed">
+              {pocketed.slice(-7).map((b) => (
+                <BallIcon key={b.id} n={b.id} small />
+              ))}
+            </div>
+          )}
+          {g.winner === null && !p.isWaiting && (
+            <CueControl
+              key={g.shots}
+              enabled={myTurn && !g.moving && !p.preparing}
+              onShoot={p.onShoot}
+            />
+          )}
+          {/* Telegram floats its own ⋯ and ✕ over the top corner of the
+              WebView, so every control of ours lives along the bottom. */}
+          <footer className="mini-bar">
             <button
               className="mini-icon-button"
               aria-label="Назад в меню"
@@ -118,20 +137,25 @@ export default function MiniApp(p: MiniProps) {
                 {status}
               </strong>
               <span>
-                {p.mode === "practice"
-                  ? group
-                  : `${p.players[p.myIndex]?.name || "Ты"} · ${
-                      p.players[1 - p.myIndex]?.name || "ждём соперника"
-                    }`}
+                {g.winner !== null || p.isWaiting
+                  ? ""
+                  : g.moving
+                    ? "Шары катятся"
+                    : !myTurn
+                      ? "Соперник целится"
+                      : g.shots > 0
+                        ? g.message
+                        : "Проведи по столу — повернёшь кий"}
               </span>
             </div>
-            {pocketed.length > 0 && (
-              <div className="mini-pocketed">
-                {pocketed.slice(-7).map((b) => (
-                  <BallIcon key={b.id} n={b.id} small />
-                ))}
-              </div>
-            )}
+            <button
+              className="mini-icon-button"
+              aria-label={p.view === "top" ? "Вид сбоку" : "Вид сверху"}
+              aria-pressed={p.view === "top"}
+              onClick={p.onToggleView}
+            >
+              <Eye size={19} />
+            </button>
             <button
               className="mini-icon-button"
               aria-label={
@@ -145,30 +169,7 @@ export default function MiniApp(p: MiniProps) {
                 <Flag size={19} />
               )}
             </button>
-          </header>
-          {charge !== null && (
-            <div className="mini-charge">
-              <div className="mini-charge-track">
-                <i style={{ height: `${Math.round(charge * 100)}%` }} />
-              </div>
-              <span>
-                {Math.round(charge * 100)}%
-                <small>{shotSpeedMps(charge).toFixed(1)} м/с</small>
-              </span>
-            </div>
-          )}
-          {g.winner === null && !p.isWaiting && (
-            <div className="mini-hint">
-              <Crosshair size={12} />
-              {g.moving
-                ? "Шары катятся"
-                : !myTurn
-                  ? "Соперник целится"
-                  : g.shots > 0
-                    ? g.message
-                    : "Оттяни кий назад и отпусти — это удар"}
-            </div>
-          )}
+          </footer>
           {p.isWaiting && (
             <div className="mini-overlay">
               <LoaderCircle className="spin" size={34} />
@@ -338,4 +339,97 @@ function useLandscapeFrame(active: boolean) {
     };
   }, [active]);
   return rotated;
+}
+
+/** How far the side cue travels, in CSS pixels, from rest to full power. */
+const CUE_TRAVEL = 150;
+
+/**
+ * The cue the player actually handles: a second stick drawn beside the table.
+ * Dragging it back charges the shot one to one with the finger, letting go
+ * plays it. The cue on the cloth only shows the direction.
+ */
+function CueControl({
+  enabled,
+  onShoot,
+}: {
+  enabled: boolean;
+  onShoot: (power: number) => void;
+}) {
+  const [pull, setPull] = useState(0);
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  const power = Math.min(1, pull / CUE_TRAVEL);
+  const down = (e: React.PointerEvent) => {
+    if (!enabled || drag.current) return;
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const move = (e: React.PointerEvent) => {
+    if (drag.current?.id !== e.pointerId) return;
+    // The frame is turned 90°: pulling the cue "down" the screen the player
+    // sees is a drag towards the physical left edge of the phone.
+    const held = e.currentTarget.closest(".is-rotated")
+      ? drag.current.x - e.clientX
+      : e.clientY - drag.current.y;
+    setPull(Math.max(0, Math.min(CUE_TRAVEL * 1.12, held)));
+  };
+  const up = (e: React.PointerEvent) => {
+    if (drag.current?.id !== e.pointerId) return;
+    drag.current = null;
+    const charged = Math.min(1, pull / CUE_TRAVEL);
+    setPull(0);
+    if (enabled && charged > 0.07) onShoot(Math.max(0.08, charged));
+  };
+  // Without a pointer the cue is charged with the arrow keys and fired with
+  // Enter, so the shot is not locked behind a drag gesture.
+  const key = (e: React.KeyboardEvent) => {
+    if (!enabled) return;
+    const step = e.shiftKey ? CUE_TRAVEL / 20 : CUE_TRAVEL / 5;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight")
+      setPull((v) => Math.min(CUE_TRAVEL, v + step));
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft")
+      setPull((v) => Math.max(0, v - step));
+    else if (e.key === "Enter" || e.key === " ") {
+      if (power > 0.07) onShoot(Math.max(0.08, power));
+      setPull(0);
+    } else return;
+    e.preventDefault();
+  };
+  return (
+    <div
+      className={`mini-cue${enabled ? "" : " is-off"}${pull > 0 ? " is-pulled" : ""}`}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      onKeyDown={key}
+      tabIndex={enabled ? 0 : -1}
+      role="slider"
+      aria-label="Кий: оттяни назад и отпусти"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(power * 100)}
+    >
+      <div className="mini-cue-rail">
+        <div
+          className="mini-cue-stick"
+          style={{ transform: `translateY(${pull}px)` }}
+        >
+          <i className="mini-cue-tip" />
+          <i className="mini-cue-shaft" />
+          <i className="mini-cue-butt" />
+        </div>
+      </div>
+      <span className="mini-cue-power">
+        {pull > 0 ? (
+          <>
+            {Math.round(power * 100)}%
+            <small>{shotSpeedMps(power).toFixed(1)} м/с</small>
+          </>
+        ) : (
+          <small>{enabled ? "оттяни кий" : "ждём"}</small>
+        )}
+      </span>
+    </div>
+  );
 }
