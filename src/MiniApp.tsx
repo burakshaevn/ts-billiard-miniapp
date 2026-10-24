@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Table from "./Table";
 import Avatar from "./Avatar";
+import Berry from "./Berry";
 import { BALL_COLORS } from "./balls";
 import { LOGO_LARGE_URL } from "./config";
 import { type Game } from "../shared/game";
@@ -63,8 +64,17 @@ export type MiniProps = {
   name: string;
   sound: boolean;
   matches: number;
+  /** Berries in the wallet; null until the server says. */
+  balance: number | null;
+  /** Stake of the table being played right now, 0 = дружеская партия. */
+  matchStake: number;
+  /** Berries just won in this match, shown in the result overlay. */
+  prize: number;
+  /** How many tables are waiting for an opponent right now. */
+  openTables: number;
   onPractice: () => void;
   onFindOpponent: () => void;
+  onWallet: () => void;
   onFriends: () => void;
   onRules: () => void;
   onHistory: () => void;
@@ -192,6 +202,12 @@ export default function MiniApp(p: MiniProps) {
               <strong className={myTurn && !g.moving ? "is-turn" : ""}>
                 {status}
               </strong>
+              {p.matchStake > 0 && (
+                <em className="mini-stake" title="Ставка стола">
+                  <Berry size={11} />
+                  {p.matchStake}
+                </em>
+              )}
             </div>
             <button
               className="mini-icon-button"
@@ -235,6 +251,14 @@ export default function MiniApp(p: MiniProps) {
                   ? " Соперник предлагает сыграть ещё."
                   : ""}
               </p>
+              {p.matchStake > 0 && (
+                <p className="mini-payout">
+                  {p.prize > 0
+                    ? `Банк твой: +${p.prize}`
+                    : `Ставка ушла сопернику: −${p.matchStake}`}
+                  <Berry size={13} />
+                </p>
+              )}
               <button
                 className="mini-primary"
                 disabled={p.rematch === "sent"}
@@ -261,6 +285,15 @@ export default function MiniApp(p: MiniProps) {
   return (
     <div className="mini-app mini-app-lobby">
       <header className="mini-bar">
+        <button
+          className="mini-balance"
+          onClick={p.onWallet}
+          aria-label="Кошелёк: ягодки и пополнение"
+          title="Кошелёк: ягодки и пополнение"
+        >
+          <Berry size={13} />
+          <strong>{p.balance === null ? "—" : p.balance}</strong>
+        </button>
         <span className={`mini-online ${p.connected ? "live" : ""}`}>
           <i />
           {soon
@@ -285,6 +318,15 @@ export default function MiniApp(p: MiniProps) {
         <div className="mini-searching">
           <LoaderCircle className="spin" size={30} />
           <strong>{p.code ? "Ждём друга" : "Ищем соперника"}</strong>
+          {p.matchStake > 0 && (
+            <span className="mini-stake-note">
+              Ставка стола{" "}
+              <b>
+                <Berry size={12} />
+                {p.matchStake}
+              </b>
+            </span>
+          )}
           {p.code ? (
             <>
               <button className="mini-code" onClick={p.onCopyInvite}>
@@ -314,7 +356,13 @@ export default function MiniApp(p: MiniProps) {
             <Gamepad2 size={22} />
             <span>
               <strong>Играть онлайн</strong>
-              <small>Случайный соперник</small>
+              <small>
+                {soon
+                  ? "Нужен игровой сервер"
+                  : p.openTables > 0
+                    ? `Открытых столов: ${p.openTables}`
+                    : "Столы и ставки"}
+              </small>
             </span>
             {soon ? (
               <em className="mini-soon">скоро</em>

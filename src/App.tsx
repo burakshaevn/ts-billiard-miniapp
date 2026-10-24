@@ -20,12 +20,14 @@ import {
   RotateCcw,
   Settings2,
   ShieldCheck,
+  Star,
   Trophy,
   Users,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
+import Berry from "./Berry";
 import Table from "./Table";
 import Avatar from "./Avatar";
 import BallIcon from "./BallIcon";
@@ -34,9 +36,18 @@ import {
   LOGO_URL,
   inviteLink,
   isTelegramClient,
+  playerKey,
   resolveGameServer,
   startRoomCode,
 } from "./config";
+import {
+  PACKS,
+  STAKES,
+  berries,
+  canAfford,
+  stakeLabel,
+  type Stake,
+} from "../shared/wallet";
 import {
   createGame,
   shoot,
@@ -48,7 +59,23 @@ import { STROKE_MS, type CueStroke } from "../shared/rendering";
 
 type Player = { id: string; name: string; avatar?: string };
 type Match = { date: string; result: string; shots: number; opponent: string };
-type Modal = "rules" | "friends" | "history" | "profile" | "leave" | null;
+/** A table in the lobby list: someone is sitting there, waiting for a rival. */
+export type OpenTable = {
+  code: string;
+  host: string;
+  avatar?: string;
+  stake: number;
+  created: number;
+};
+type Modal =
+  | "rules"
+  | "friends"
+  | "history"
+  | "profile"
+  | "leave"
+  | "tables"
+  | "wallet"
+  | null;
 /** Phones in both orientations get the Mini App layout; wide desktops keep the club page. */
 const COMPACT_QUERY =
   "(max-width:760px),(max-height:520px) and (max-width:1100px)";
@@ -122,6 +149,22 @@ function App() {
     [records, setRecords] = useState<Match[]>(() => load("luza-matches", []));
   const [inviteCopied, setInviteCopied] = useState(false),
     [busy, setBusy] = useState(false);
+  // Berries: the balance and the open tables come from the server, which is
+  // the only authority. Until it answers we show nothing rather than a guess.
+  const [balance, setBalance] = useState<number | null>(null),
+    [tables, setTables] = useState<OpenTable[]>([]),
+    [stake, setStake] = useState<Stake>(() => {
+      const saved = load<number>("luza-stake", 0);
+      return (STAKES as readonly number[]).includes(saved)
+        ? (saved as Stake)
+        : 0;
+    }),
+    // Stake of the table being played right now, and the last payout.
+    [matchStake, setMatchStake] = useState(0),
+    [prize, setPrize] = useState(0),
+    [topupPack, setTopupPack] = useState("");
+  const stakeRef = useRef(stake);
+  stakeRef.current = stake;
   // Another game with the same opponent: "sent" = we asked, "offered" = they did.
   const [rematch, setRematch] = useState<"none" | "sent" | "offered">("none");
   const gameRef = useRef<Game>(createGame(true)),
@@ -250,17 +293,66 @@ function App() {
     if (!requireServer()) return;
     setModal("friends");
   }
-  function startSearch() {
+  /** The lobby with open tables: pick a stake, sit down or open your own. */
+  function openTables() {
     if (!requireServer()) return;
-    if (!connected)
-      return notify(
-        "Подключаемся к серверу. Попробуй ещё раз через пару секунд.",
-      );
-    if (mode === "online") return setModal("leave");
+    setModal("tables");
+  }
+  function openWallet() {
+    setModal("wallet");
+  }
+  function chooseStake(next: Stake) {
+    setStake(next);
+    save("luza-stake", next);
+    haptic("tap");
+  }
+  /** Can I afford the stake I have selected? */
+  const affordable = balance === null || canAfford(balance, stake);
+  function readyToPlay() {
+    if (!requireServer()) return false;
+    if (!connected) {
+      notify("Подключаемся к серверу. Попробуй ещё раз через пару секунд.");
+      return false;
+    }
+    if (mode === "online") {
+      setModal("leave");
+      return false;
+    }
+    return true;
+  }
+  /** Quick game: the oldest open table with this stake, or a new one of mine. */
+  function startSearch() {
+    if (!readyToPlay()) return;
+    if (!affordable) {
+      notify(`Не хватает ягодок: нужно ${stake}, а у тебя ${balance}.`);
+      return;
+    }
     cancelStroke();
     setBusy(true);
-    send({ type: "queue" });
+    setModal(null);
+    send({ type: "queue", stake: stakeRef.current });
     setSearchSeconds(0);
+  }
+  /** Sit down at a table someone is already waiting at. */
+  function sitAt(table: OpenTable) {
+    if (!readyToPlay()) return;
+    if (balance !== null && !canAfford(balance, table.stake)) {
+      notify(`Не хватает ягодок: за этот стол нужно ${table.stake}.`);
+      return;
+    }
+    cancelStroke();
+    setBusy(true);
+    setModal(null);
+    send({ type: "join", code: table.code });
+  }
+  /** Buy berries for Telegram Stars. */
+  function buyBerries(packId: string) {
+    if (!connected) {
+      notify("Нет связи с сервером — пополнение временно недоступно.");
+      return;
+    }
+    setTopupPack(packId);
+    send({ type: "topup", pack: packId });
   }
   function askRematch() {
     if (!send({ type: "rematch" })) return;
@@ -400,6 +492,9 @@ function App() {
             type: "hello",
             name: nameRef.current,
             avatar: avatarRef.current,
+            // Which wallet is mine; see playerKey() for what it does not prove.
+            key: playerKey(),
+            tgId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
           }),
         );
         const room = startRoomCode();
@@ -417,6 +512,31 @@ function App() {
           return;
         }
         if (m.type === "population") setPopulation(m.count);
+        if (m.type === "wallet" && typeof m.balance === "number")
+          setBalance(m.balance);
+        if (m.type === "tables" && Array.isArray(m.tables))
+          setTables(m.tables as OpenTable[]);
+        if (m.type === "topup_link" && typeof m.url === "string") {
+          setTopupPack("");
+          const tg = window.Telegram?.WebApp;
+          if (tg?.openInvoice)
+            tg.openInvoice(m.url, (status) => {
+              // Status is a hint for the UI only: berries are credited by the
+              // payment webhook, which arrives as a `wallet` message.
+              if (status === "paid") notify("Оплата прошла, ягодки зачисляем.");
+              else if (status === "failed")
+                notify("Платёж не прошёл. Ягодки не списаны.");
+            });
+          else window.open(m.url, "_blank", "noopener");
+        }
+        if (m.type === "topup_unavailable") {
+          setTopupPack("");
+          notify(m.reason || "Пополнение сейчас недоступно.");
+        }
+        if (m.type === "topup_done") {
+          setTopupPack("");
+          notify("Ягодки зачислены.");
+        }
         if (m.type === "rematch_sent") setRematch("sent");
         if (m.type === "rematch_offer") setRematch("offered");
         if (m.type === "waiting") {
@@ -433,6 +553,9 @@ function App() {
           const joined = roomSizeRef.current !== m.players.length;
           currentRoomRef.current = m.code;
           roomSizeRef.current = m.players.length;
+          setMatchStake(typeof m.stake === "number" ? m.stake : 0);
+          if (typeof m.prize === "number" && m.prize > 0) setPrize(m.prize);
+          if (restarted || newRoom) setPrize(0);
           if (m.game.moving || newRoom) cancelStroke();
           gameRef.current = m.game;
           setPlayers(m.players);
@@ -707,6 +830,81 @@ function App() {
   // On the rotated game screen the toast is drawn inside the frame instead:
   // floating over the physical bottom edge, it covered the cue.
   const gameToast = compact && screen === "game";
+  /** Stake chips: the bet both players put on the table. */
+  const stakePicker = (
+    <div className="stake-row" role="group" aria-label="Ставка">
+      {STAKES.map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={"stake-chip" + (value === stake ? " is-active" : "")}
+          aria-pressed={value === stake}
+          // The chips show bare numbers so all five fit a phone in one row;
+          // the currency is in the heading, the button and the screen reader.
+          aria-label={value === 0 ? "Без ставки" : stakeLabel(value)}
+          disabled={balance !== null && !canAfford(balance, value)}
+          onClick={() => chooseStake(value)}
+        >
+          {value === 0 ? "Без ставки" : value}
+        </button>
+      ))}
+    </div>
+  );
+  /** The open tables themselves: tap one to sit down against its host. */
+  const tableList = (
+    <ul className="table-list">
+      {tables.length === 0 && (
+        <li className="table-empty">
+          Свободных столов нет. Открой свой — соперник подсядет.
+        </li>
+      )}
+      {tables.map((t) => (
+        <li key={t.code}>
+          <button
+            type="button"
+            className="table-row"
+            disabled={
+              busy || (balance !== null && !canAfford(balance, t.stake))
+            }
+            onClick={() => sitAt(t)}
+          >
+            <Avatar name={t.host} src={t.avatar} />
+            <span className="table-host">
+              {t.host}
+              <em>ждёт соперника</em>
+            </span>
+            <span
+              className={"table-stake" + (t.stake > 0 ? " is-paid" : "")}
+              title={stakeLabel(t.stake)}
+            >
+              {t.stake > 0 ? (
+                <>
+                  {t.stake}
+                  <Berry size={12} />
+                </>
+              ) : (
+                "без ставки"
+              )}
+            </span>
+            <ArrowRight size={17} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+  /** Balance chip: shows the berries and opens the wallet. */
+  const balanceChip = (className: string) => (
+    <button
+      type="button"
+      className={className}
+      onClick={openWallet}
+      aria-label="Кошелёк: ягодки и пополнение"
+      title="Кошелёк: ягодки и пополнение"
+    >
+      <Berry size={14} />
+      <strong>{balance === null ? "—" : balance}</strong>
+    </button>
+  );
   const overlays = (
     <>
       {toast && !gameToast && (
@@ -830,7 +1028,7 @@ function App() {
                       if (mode === "online" && players.length === 2)
                         return setModal("leave");
                       setBusy(true);
-                      send({ type: "create" });
+                      send({ type: "create", stake: stakeRef.current });
                       setSearchSeconds(0);
                     }}
                   >
@@ -838,7 +1036,7 @@ function App() {
                     {busy ? "Создаём комнату…" : "Создать свой стол"}
                   </button>
                 )}
-                <div className="panel-separator">
+                <div className="panel-separator labelled">
                   <span>есть приглашение?</span>
                 </div>
                 <form
@@ -982,6 +1180,94 @@ function App() {
                 </p>
               </>
             )}
+            {modal === "tables" && (
+              <>
+                <span className="modal-kicker">ОТКРЫТЫЕ СТОЛЫ</span>
+                <h2 id="modal-title">
+                  Выбери стол<span>.</span>
+                </h2>
+                <p className="modal-intro">
+                  За этими столами ждут соперника. Ставка — ягодки, которые
+                  кладут оба: победитель забирает обе.
+                </p>
+                {stakePicker}
+                {tableList}
+                <button
+                  className="primary-button"
+                  disabled={busy || !affordable}
+                  onClick={startSearch}
+                >
+                  <Plus size={18} />
+                  {busy ? (
+                    "Садимся за стол…"
+                  ) : stake > 0 ? (
+                    <>
+                      Открыть свой стол · {stake}
+                      <Berry size={13} />
+                    </>
+                  ) : (
+                    "Открыть свой стол"
+                  )}
+                </button>
+                <p className="subtle-text">
+                  {balance === null
+                    ? "Баланс подгружается…"
+                    : `У тебя ${berries(balance)}.`}{" "}
+                  <button className="link-button" onClick={openWallet}>
+                    Пополнить
+                  </button>
+                </p>
+              </>
+            )}
+            {modal === "wallet" && (
+              <>
+                <span className="modal-kicker">КОШЕЛЁК</span>
+                <h2 id="modal-title">
+                  {balance === null ? "Ягодки" : berries(balance)}
+                  <span>.</span>
+                </h2>
+                <p className="modal-intro">
+                  Ягодки — валюта стола: оба игрока ставят поровну, победитель
+                  забирает банк. Пополняются звёздами Telegram.
+                </p>
+                <div className="pack-list">
+                  {PACKS.map((pack) => (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      className="pack-row"
+                      disabled={!!topupPack || !connected}
+                      onClick={() => buyBerries(pack.id)}
+                    >
+                      <span className="pack-berries">
+                        <Berry size={16} />
+                        <span>{pack.berries}</span>
+                        <em>ягодок</em>
+                      </span>
+                      <span className="pack-price">
+                        {topupPack === pack.id ? (
+                          <LoaderCircle className="spin" size={16} />
+                        ) : (
+                          <>
+                            {pack.stars}
+                            <Star
+                              size={13}
+                              fill="currentColor"
+                              strokeWidth={0}
+                            />
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="subtle-text">
+                  {onlineAvailable === false
+                    ? "Кошелёк и ставки живут на игровом сервере, а в этой сборке его нет: доступна только тренировка."
+                    : "Оплата идёт звёздами Telegram (XTR) внутри приложения. Ягодки зачисляются, когда Telegram подтвердит платёж. Без подключённого бота пополнение недоступно — играй на стартовые."}
+                </p>
+              </>
+            )}
             {modal === "leave" && (
               <>
                 <span className="modal-kicker">СМЕНИТЬ СТОЛ</span>
@@ -991,6 +1277,9 @@ function App() {
                 <p className="modal-intro">
                   Текущая комната закроется для обоих игроков. Ты вернёшься к
                   свободной тренировке.
+                  {matchStake > 0 && players.length === 2
+                    ? ` Ставка ${stakeLabel(matchStake)} останется сопернику.`
+                    : ""}
                 </p>
                 <div className="modal-actions">
                   <button
@@ -1045,8 +1334,13 @@ function App() {
           name={name}
           sound={sound}
           matches={records.length}
+          balance={balance}
+          matchStake={matchStake}
+          prize={prize}
+          openTables={tables.length}
           onPractice={startPractice}
-          onFindOpponent={startSearch}
+          onFindOpponent={openTables}
+          onWallet={openWallet}
           onFriends={openFriends}
           onRules={() => setModal("rules")}
           onHistory={() => setModal("history")}
@@ -1159,6 +1453,7 @@ function App() {
                 ? `${population} ${plural(population, "игрок", "игрока", "игроков")} онлайн`
                 : "Офлайн-тренировка"}
             </span>
+            {balanceChip("balance-chip")}
             <span className="top-divider" />
             <button
               className="icon-button sound-top"
@@ -1436,10 +1731,11 @@ function App() {
                   <ChevronDown size={17} />
                 </button>
               </div>
+              {stakePicker}
               <button
                 className="primary-button find-button"
                 onClick={isWaiting ? exitToPractice : startSearch}
-                disabled={busy}
+                disabled={busy || (!isWaiting && !affordable)}
               >
                 {busy ? (
                   <LoaderCircle className="spin" size={18} />
@@ -1449,11 +1745,18 @@ function App() {
                   <Gamepad2 size={19} />
                 )}
                 <span>
-                  {isWaiting
-                    ? "Отменить поиск"
-                    : mode === "online"
-                      ? "Новая игра"
-                      : "Найти соперника"}
+                  {isWaiting ? (
+                    "Отменить поиск"
+                  ) : mode === "online" ? (
+                    "Новая игра"
+                  ) : stake > 0 ? (
+                    <>
+                      Сесть за стол · {stake}
+                      <Berry size={13} />
+                    </>
+                  ) : (
+                    "Найти соперника"
+                  )}
                 </span>
                 {!isWaiting && <ArrowRight size={18} />}
               </button>
@@ -1461,10 +1764,16 @@ function App() {
                 <i />
                 {onlineAvailable === false
                   ? "Онлайн подключим позже. Сейчас — тренировка."
-                  : connected
-                    ? "Сервер готов. Можно играть."
-                    : "Тренируйся, пока подключаемся"}
+                  : !affordable
+                    ? `Для этой ставки нужно ${stake} ягодок.`
+                    : connected
+                      ? "Сервер готов. Можно играть."
+                      : "Тренируйся, пока подключаемся"}
               </div>
+              <div className="panel-separator labelled">
+                <span>кто ждёт соперника</span>
+              </div>
+              {tableList}
               <div className="panel-separator" />
               <button className="friend-button" onClick={openFriends}>
                 <Users size={17} />

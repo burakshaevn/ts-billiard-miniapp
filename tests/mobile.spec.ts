@@ -50,13 +50,38 @@ test("mini app on a phone: menu, practice table, online match", async ({
   await a.getByRole("button", { name: "Назад в меню" }).click();
   await expect(a.getByRole("heading", { name: "Amazing Pool" })).toBeVisible();
 
+  // Online means: pick a stake, then open a table or sit at someone else's.
   await a.getByRole("button", { name: /Играть онлайн/ }).click();
+  await expect(a.getByRole("heading", { name: /Выбери стол/ })).toBeVisible();
+  await expect(
+    a.getByText("Свободных столов нет", { exact: false }),
+  ).toBeVisible();
+  await a.getByRole("button", { name: "25 ягодок", exact: true }).click();
+  await a.getByRole("button", { name: /Открыть свой стол/ }).click();
   await expect(a.getByText("Ищем соперника")).toBeVisible();
+  await expect(a.locator(".mini-stake-note")).toHaveText(/Ставка стола\s*25/);
   const b = await context.newPage();
   b.on("pageerror", (e) => errors.push(e.message));
+  // A second wallet: both tabs share localStorage, one key would be one purse.
+  // A fresh key every run, so a rerun always starts from the welcome balance.
+  await b.addInitScript(() =>
+    localStorage.setItem(
+      "amazing-pool-player",
+      "guest:" + crypto.randomUUID().slice(0, 18),
+    ),
+  );
   await b.goto("/");
   await b.getByRole("button", { name: /Играть онлайн/ }).click();
+  // The open table is listed for everyone, with the stake it is played for.
+  const table = b.locator(".table-row");
+  await expect(table).toHaveCount(1);
+  await expect(table).toContainText("25");
+  await expect(table).toContainText("ждёт соперника");
+  await table.click();
   await expect(a.locator(".mini-stage canvas")).toBeVisible();
+  // Both wallets paid the stake: 150 - 25 berries left in each.
+  await expect(a.locator(".mini-stake")).toHaveText("25");
+  await expect(b.locator(".mini-stake")).toHaveText("25");
   await expect(b.locator(".mini-stage canvas")).toBeVisible();
   await expect(a.getByText("Твой ход")).toBeVisible();
   await expect(b.getByText(/Ход: /)).toBeVisible();
@@ -66,6 +91,12 @@ test("mini app on a phone: menu, practice table, online match", async ({
   await expect(b.getByText("Шары в движении")).toBeVisible();
   await b.close();
   await expect(a.getByRole("heading", { name: "Amazing Pool" })).toBeVisible();
+  // Walking out of a staked game hands the pot over: 125 + 50 berries.
+  await expect(a.locator(".mini-balance strong")).toHaveText("175");
+  await a.getByRole("button", { name: /Кошелёк/ }).click();
+  await expect(a.getByRole("heading", { name: /175 ягодок/ })).toBeVisible();
+  await expect(a.getByText("350")).toBeVisible();
+  await a.keyboard.press("Escape");
   expect(errors).toEqual([]);
 });
 
@@ -122,13 +153,19 @@ test("telegram photos of both players sit over the table", async ({
   await context.route("https://cdn.telegram.test/**", (route) =>
     route.fulfill({ status: 200, contentType: "image/png", body: png }),
   );
-  const mock = ([n, p]: string[]) => {
+  const mock = ([n, p, id]: string[]) => {
     window.Telegram = {
       WebApp: {
         ready: () => {},
         expand: () => {},
         isVersionAtLeast: () => true,
-        initDataUnsafe: { user: { first_name: n, photo_url: p || undefined } },
+        initDataUnsafe: {
+          user: {
+            id: Number(id),
+            first_name: n,
+            photo_url: p || undefined,
+          },
+        },
         viewportStableHeight: 800,
         contentSafeAreaInset: { top: 0, bottom: 0, left: 0, right: 0 },
         BackButton: {
@@ -141,14 +178,20 @@ test("telegram photos of both players sit over the table", async ({
     };
   };
 
-  await a.addInitScript(mock, ["Лена", "https://cdn.telegram.test/lena.png"]);
+  await a.addInitScript(mock, [
+    "Лена",
+    "https://cdn.telegram.test/lena.png",
+    "7001",
+  ]);
   const b = await context.newPage();
   // The second player has no photo: the name letter has to stand in for it.
-  await b.addInitScript(mock, ["Игорь", ""]);
+  await b.addInitScript(mock, ["Игорь", "", "7002"]);
   await a.goto("/");
   await b.goto("/");
   await a.getByRole("button", { name: /Играть онлайн/ }).click();
+  await a.getByRole("button", { name: /Открыть свой стол/ }).click();
   await b.getByRole("button", { name: /Играть онлайн/ }).click();
+  await b.locator(".table-row").click();
   await expect(a.locator(".mini-stage canvas")).toBeVisible();
 
   // Both names are over the table, so it is clear who is playing whom.

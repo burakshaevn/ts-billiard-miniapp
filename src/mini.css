@@ -647,3 +647,52 @@ body.mini-mode {
     display: none;
   }
 }
+/* Ягодки в мини-приложении: баланс в шапке лобби, ставка и выигрыш на столе. */
+.mini-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #39462f;
+  background: #d2ed890a;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #d7e4c2;
+}
+.mini-balance svg {
+  color: var(--lime);
+}
+.mini-balance strong {
+  font-weight: 700;
+  color: var(--lime);
+}
+.mini-stake {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--lime);
+}
+.mini-stake-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.mini-stake-note b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--lime);
+}
+.mini-payout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lime);
+}

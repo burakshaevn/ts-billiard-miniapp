@@ -1912,3 +1912,218 @@ input::placeholder {
     );
   }
 }
+/* Ягодки: баланс в шапке, ставки и список открытых столов. Валюта — та же
+   вишня, что и в логотипе, поэтому значок 🍒 везде один и тот же. */
+.balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #445236;
+  background: #b7d27d08;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 11px;
+  color: #d7e4c2;
+}
+.balance-chip svg {
+  color: var(--lime);
+}
+.balance-chip strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lime);
+}
+.balance-chip:hover {
+  border-color: #5d7049;
+}
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--lime);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.stake-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 18px 0 2px;
+}
+/* In the table picker the stakes stay on one line: a phone shows all five
+   at once, a narrower screen scrolls them sideways. The desktop panel is
+   only 250 px wide, so there the row keeps wrapping. */
+.modal .stake-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 6px;
+}
+.modal .stake-row::-webkit-scrollbar {
+  display: none;
+}
+.modal .stake-chip {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+}
+.stake-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  border: 1px solid #39462f;
+  background: #b7d27d05;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #c5d3af;
+  min-height: 36px;
+}
+.stake-chip.is-active {
+  border-color: var(--green);
+  background: #d2ed8914;
+  color: var(--lime);
+}
+.stake-chip:disabled {
+  opacity: 0.38;
+}
+.table-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0 18px;
+  padding: 0;
+  max-height: 236px;
+  overflow-y: auto;
+}
+.table-row {
+  --avatar-size: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid #2f3a28;
+  background: #b7d27d04;
+  border-radius: 7px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.table-row:hover:not(:disabled) {
+  border-color: #4d5d38;
+  background: #d2ed890d;
+}
+.table-row:disabled {
+  opacity: 0.45;
+}
+.table-host {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dfe8d2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.table-host em {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: #81907a;
+}
+.table-stake {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9aa894;
+  white-space: nowrap;
+}
+.table-stake.is-paid {
+  color: var(--lime);
+}
+.table-empty {
+  border: 1px dashed #333f2c;
+  border-radius: 7px;
+  padding: 13px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: #8c9a83;
+  text-align: center;
+}
+.pack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.pack-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #39462f;
+  background: #b7d27d05;
+  border-radius: 7px;
+  padding: 12px 14px;
+  min-height: 52px;
+}
+.pack-row:hover:not(:disabled) {
+  border-color: var(--green);
+}
+.pack-row:disabled {
+  opacity: 0.5;
+}
+.pack-berries {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--lime);
+}
+.pack-berries > span {
+  color: #e6eedd;
+}
+.pack-berries em {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: #86937d;
+}
+.pack-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lime);
+}
+/* Separator with a caption in the middle, instead of the bare 1px line. */
+.panel-separator.labelled {
+  height: auto;
+  background: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.panel-separator.labelled::before,
+.panel-separator.labelled::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #303c28;
+}
+.panel-separator.labelled span {
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #788667;
+}
