@@ -53,7 +53,7 @@ test("Telegram SDK bridge: ready, expand, safe area, back button and swipe guard
   await page.goto("/");
   // Telegram clients always get the compact layout, never the club page.
   await expect(
-    page.getByRole("heading", { name: "Пул «Восьмёрка»" }),
+    page.getByRole("heading", { name: "Amazing Pool" }),
   ).toBeVisible();
   await expect(page.locator(".sidebar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Лена" })).toBeVisible();
@@ -81,13 +81,17 @@ test("Telegram SDK bridge: ready, expand, safe area, back button and swipe guard
     )
     .toBe("swipes-off");
   expect(await calls()).toContain("back-show");
+  // Telegram draws its own back button in that corner: ours must not double up.
+  await expect(page.getByRole("button", { name: "Назад в меню" })).toHaveCount(
+    0,
+  );
 
   // Telegram's own back button returns to the menu instead of closing the app.
   await page.evaluate(() =>
     (window as unknown as { tgBack: () => void }).tgBack(),
   );
   await expect(
-    page.getByRole("heading", { name: "Пул «Восьмёрка»" }),
+    page.getByRole("heading", { name: "Amazing Pool" }),
   ).toBeVisible();
   await expect
     .poll(async () =>

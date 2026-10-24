@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { type Game, WIDTH, HEIGHT, RADIUS, POCKETS } from "../shared/game";
 import { createTableBody } from "./tableScene";
+import { BALL_COLORS } from "./balls";
 import { CUSHION_SEGMENTS, POCKET_CAPTURE_RADIUS } from "../shared/table";
 import {
   sampleSnapshots,
@@ -11,76 +11,97 @@ import {
   type CueStroke,
 } from "../shared/rendering";
 
-export const BALL_COLORS = [
-  "#f9f5e8",
-  "#efbe28",
-  "#2868b5",
-  "#df493a",
-  "#824eaa",
-  "#e98b28",
-  "#2e8e6c",
-  "#a13236",
-  "#14191b",
-  "#efbe28",
-  "#2868b5",
-  "#df493a",
-  "#824eaa",
-  "#e98b28",
-  "#2e8e6c",
-  "#a13236",
-];
+/**
+ * Aim marks on the cloth — the one place to tune them.
+ *
+ * Nothing is drawn between the cue ball and the object ball: only a short
+ * rounded stripe arriving at the contact circle, the circle itself, and a
+ * second stripe leaving the object ball. Lengths and widths are in table
+ * units, where one ball is 0.243 wide (`RADIUS * 2`).
+ */
+const AIM = {
+  /** Stripe that arrives at the ghost circle. */
+  contactLength: 0.34,
+  contactWidth: 0.075,
+  contactOpacity: 0.85,
+  /** Stripe that leaves the object ball, showing where it goes. */
+  targetLength: 0.38,
+  targetWidth: 0.07,
+  targetOpacity: 0.72,
+  /** Clearance between a ball edge and the start of a stripe. */
+  gap: 0.035,
+  /** The ghost circle drawn where the cue ball will stop. */
+  ghostWidth: 0.042,
+  ghostOpacity: 0.92,
+  /** Height above the cloth: high enough to never z-fight with the felt. */
+  y: 0.075,
+};
 type Props = {
   gameRef: React.RefObject<Game>;
   angleRef: React.RefObject<number>;
   onAim: (angle: number) => void;
+  /** Camera: a raking three-quarter view or straight down on the cloth. */
+  view?: "angled" | "top";
   canAim: boolean;
   power: number;
+  /**
+   * The game is being simulated right here (practice, a match against the
+   * bot in the browser) rather than arriving from the server, so draw the
+   * balls where they are instead of interpolating between snapshots.
+   */
+  live?: boolean;
   resetKey: number;
   strokeRef: React.RefObject<CueStroke | null>;
-  /** Turn the camera 90° when the container is taller than wide (Telegram phone screen). */
-  portraitFit?: boolean;
 };
-function ballTexture(id: number) {
+function ballTexture(id: number, anisotropy = 1) {
+  // 1024x512 instead of 512x256: the numbers stay sharp on a high-DPI phone.
   const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 256;
+  c.width = 1024;
+  c.height = 512;
   const ctx = c.getContext("2d")!;
-  ctx.fillStyle = id > 8 ? "#faf5e8" : BALL_COLORS[id];
-  ctx.fillRect(0, 0, 512, 256);
+  ctx.fillStyle = id > 8 ? "#fbf7ec" : BALL_COLORS[id];
+  ctx.fillRect(0, 0, 1024, 512);
   if (id > 8) {
     ctx.fillStyle = BALL_COLORS[id];
-    ctx.fillRect(0, 69, 512, 118);
+    ctx.fillRect(0, 138, 1024, 236);
   }
   if (id > 0)
-    for (const x of [128, 384]) {
-      ctx.fillStyle = "#fff9e8";
+    for (const x of [256, 768]) {
+      // Big, high-contrast digits: on a phone the ball is about the size of
+      // a fingertip, and a timid number disappears into the highlight.
+      ctx.fillStyle = "#fffdf4";
       ctx.beginPath();
-      ctx.arc(x, 128, 37, 0, Math.PI * 2);
+      ctx.arc(x, 256, 92, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#182121";
-      ctx.font = "bold 48px Arial";
+      ctx.strokeStyle = "#0000001f";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = "#14191b";
+      ctx.font = "bold 124px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(id), x, 130);
+      ctx.fillText(String(id), x, 264);
     }
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = anisotropy;
   return texture;
 }
 export default function Table({
   gameRef,
   angleRef,
   onAim,
+  view = "angled",
   canAim,
   power,
+  live = false,
   resetKey,
   strokeRef,
-  portraitFit = false,
 }: Props) {
   const container = useRef<HTMLDivElement>(null),
-    refit = useRef<() => void>(() => {}),
-    flags = useRef({ canAim, power, onAim, portraitFit });
-  flags.current = { canAim, power, onAim, portraitFit };
+    refit = useRef<(view: "angled" | "top") => void>(() => {}),
+    flags = useRef({ canAim, power, onAim, view, live });
+  flags.current = { canAim, power, onAim, view, live };
   useEffect(() => {
     const host = container.current!;
     let renderer: THREE.WebGLRenderer;
@@ -95,65 +116,51 @@ export default function Table({
         '<div class="webgl-error">Для 3D-стола нужен WebGL. Открой игру в современном браузере.</div>';
       return;
     }
-    renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, host.clientWidth < 600 ? 1.5 : 2),
-    );
+    // Phones are high-DPI: rendering at 1.5x made the balls look soft.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    // No tone mapping: the cloth and the balls are painted in the exact
+    // colours we want, and every curve pulled them off-tint.
+    renderer.toneMapping = THREE.NoToneMapping;
     host.appendChild(renderer.domElement);
     renderer.domElement.setAttribute(
       "aria-label",
-      "3D-бильярдный стол. Нажми на сукно, чтобы выбрать направление удара.",
+      "3D-бильярдный стол. Проведи по сукну, чтобы повернуть кий вокруг битка.",
     );
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
-    // Long side horizontal on a wide screen, vertical on a tall one: the camera
-    // itself turns, so pointer picking, cue and aim stay in real world space.
-    const landscapeView = new THREE.Vector3(0.18, 12.5, 10).normalize();
-    // Steeper on a tall screen: the long side then fills the phone vertically.
-    const portraitView = new THREE.Vector3(5.6, 12.5, -0.12).normalize();
-    const viewDirection = landscapeView.clone();
-    const pmrem = new THREE.PMREMGenerator(renderer),
-      envScene = new RoomEnvironment(),
-      env = pmrem.fromScene(envScene, 0.06);
-    scene.environment = env.texture;
-    scene.environmentIntensity = 0.5;
-    scene.add(new THREE.HemisphereLight(0xdbe9ef, 0x15100c, 0.55));
-    const key = new THREE.DirectionalLight(0xfff4df, 3.1);
-    key.position.set(-3.5, 8, 1.5);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
+    // The table is always shown along its long side; a portrait phone rotates
+    // the whole screen instead (see .is-rotated).
+    const VIEWS = {
+      angled: new THREE.Vector3(0.18, 12.5, 10).normalize(),
+      top: new THREE.Vector3(0, 1, 0.0001).normalize(),
+    };
+    // Straight down is shot through a long lens: the rails stay parallel and
+    // the table reads like a board, not like a photo of a board.
+    const FOV = { angled: 36, top: 15 };
+    const viewDirection = VIEWS[view].clone();
+    // Flat studio light: a wide ambient plus one soft lamp overhead. No
+    // environment map, no spot, no rim — nothing that can glare.
+    // Lambert divides by pi, so these numbers look large: together they add
+    // up to roughly "the cloth is shown in the colour it was painted".
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const key = new THREE.DirectionalLight(0xffffff, 0.95);
+    key.position.set(2.4, 11, 3.6);
     key.castShadow = true;
-    key.shadow.mapSize.set(
-      host.clientWidth < 600 ? 1024 : 2048,
-      host.clientWidth < 600 ? 1024 : 2048,
-    );
+    key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.left = -8;
     key.shadow.camera.right = 8;
     key.shadow.camera.top = 6;
     key.shadow.camera.bottom = -6;
     key.shadow.normalBias = 0.006;
     key.shadow.bias = -0.00008;
-    key.shadow.radius = 4;
+    key.shadow.radius = 2;
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa6c9d6, 0.65);
-    fill.position.set(5, 5, -5);
-    scene.add(fill);
-    const overhead = new THREE.SpotLight(
-      0xf8ffe9,
-      85,
-      25,
-      Math.PI * 0.38,
-      0.9,
-      2,
-    );
-    overhead.position.set(0, 7, 0);
-    overhead.target.position.set(0, 0, 0);
-    scene.add(overhead, overhead.target);
-    const material = (color: string, roughness = 0.55, metalness = 0) =>
-      new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    const material = (color: string) =>
+      new THREE.MeshLambertMaterial({ color });
     createTableBody(scene);
     const balls = new Map<number, THREE.Mesh>();
     const falling = new Map<
@@ -162,14 +169,11 @@ export default function Table({
     >();
     for (const b of gameRef.current.balls) {
       const m = new THREE.Mesh(
-        new THREE.SphereGeometry(RADIUS, 36, 24),
-        new THREE.MeshPhysicalMaterial({
-          map: ballTexture(b.id),
-          roughness: 0.17,
-          metalness: 0,
-          clearcoat: 0.65,
-          clearcoatRoughness: 0.12,
-          envMapIntensity: 0.7,
+        new THREE.SphereGeometry(RADIUS, 48, 32),
+        // Matte: the shading only rounds the ball off, there is no highlight
+        // to swallow the number.
+        new THREE.MeshLambertMaterial({
+          map: ballTexture(b.id, renderer.capabilities.getMaxAnisotropy()),
         }),
       );
       m.position.set(b.x, RADIUS + 0.04, b.y);
@@ -180,66 +184,114 @@ export default function Table({
       scene.add(m);
     }
     const cue = new THREE.Group();
+    // The butt rides above the cloth like a real cue, otherwise the stick
+    // ploughs straight through balls and cushions while it turns.
+    const stick = new THREE.Group();
+    stick.rotation.z = -0.18;
+    cue.add(stick);
     const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.027, 0.048, 2.2, 16),
-      material("#d9c29a", 0.35),
+      new THREE.CylinderGeometry(0.027, 0.046, 2.2, 16),
+      material("#e4b07a"),
     );
     shaft.rotation.z = -Math.PI / 2;
     shaft.position.x = -RADIUS - 0.04 - 1.1;
-    cue.add(shaft);
+    stick.add(shaft);
     const butt = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.048, 0.062, 1.35, 16),
-      material("#3d2520", 0.3),
+      new THREE.CylinderGeometry(0.046, 0.058, 1.35, 16),
+      material("#d2792f"),
     );
     butt.rotation.z = -Math.PI / 2;
     butt.position.x = -RADIUS - 0.04 - 2.2 - 0.675;
-    cue.add(butt);
+    stick.add(butt);
     const tip = new THREE.Mesh(
       new THREE.CylinderGeometry(0.03, 0.03, 0.065, 12),
-      material("#5caaa3"),
+      material("#f2f3f1"),
     );
     tip.rotation.z = -Math.PI / 2;
     tip.position.x = -RADIUS - 0.0325;
-    cue.add(tip);
+    stick.add(tip);
     scene.add(cue);
-    const aimGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(),
-      new THREE.Vector3(),
-    ]);
-    const aim = new THREE.Line(
-      aimGeo,
-      new THREE.LineDashedMaterial({
-        color: 0xd6f4dc,
-        dashSize: 0.1,
-        gapSize: 0.11,
-        transparent: true,
-        opacity: 0.7,
-      }),
+    // Aim marks (see AIM above): two short rounded stripes next to the balls
+    // and the ghost circle, painted as pieces of cloth instead of GL lines —
+    // a GL line is always one pixel wide, whatever the screen.
+    const stripeGeometry = (length: number, width: number) => {
+      // A capsule: a rectangle closed by a half circle at each end. Built at
+      // its final size and never scaled, so the round caps stay round.
+      const r = width / 2,
+        half = Math.max(0.0001, length / 2 - r);
+      const shape = new THREE.Shape();
+      shape.absarc(half, 0, r, -Math.PI / 2, Math.PI / 2, false);
+      shape.absarc(-half, 0, r, Math.PI / 2, Math.PI * 1.5, false);
+      shape.closePath();
+      return new THREE.ShapeGeometry(shape, 12);
+    };
+    const stripe = (length: number, width: number, opacity: number) => {
+      const m = new THREE.Mesh(
+        stripeGeometry(length, width),
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+        }),
+      );
+      m.rotation.order = "YXZ";
+      m.rotation.x = -Math.PI / 2;
+      m.position.y = AIM.y;
+      m.renderOrder = 3;
+      scene.add(m);
+      return m;
+    };
+    const contact = stripe(
+      AIM.contactLength,
+      AIM.contactWidth,
+      AIM.contactOpacity,
     );
-    scene.add(aim);
+    const target = stripe(AIM.targetLength, AIM.targetWidth, AIM.targetOpacity);
+    /** Lay a stripe along `angle`, with its far end at (x, z). */
+    const placeStripe = (
+      m: THREE.Mesh,
+      x: number,
+      z: number,
+      dirX: number,
+      dirZ: number,
+      length: number,
+    ) => {
+      m.position.set(x - dirX * (length / 2), AIM.y, z - dirZ * (length / 2));
+      m.rotation.y = -Math.atan2(dirZ, dirX);
+    };
     const ghost = new THREE.Mesh(
-      new THREE.RingGeometry(RADIUS * 0.91, RADIUS, 40),
+      new THREE.RingGeometry(RADIUS - AIM.ghostWidth, RADIUS, 48),
       new THREE.MeshBasicMaterial({
-        color: 0xe1ffe3,
+        color: 0xffffff,
         transparent: true,
-        opacity: 0.5,
+        opacity: AIM.ghostOpacity,
+        depthWrite: false,
         side: THREE.DoubleSide,
       }),
     );
     ghost.rotation.x = -Math.PI / 2;
+    ghost.renderOrder = 4;
+    ghost.position.y = AIM.y;
     scene.add(ghost);
     const raycaster = new THREE.Raycaster(),
       mouse = new THREE.Vector2(),
       plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.06),
       point = new THREE.Vector3();
-    const setAim = (e: PointerEvent) => {
-      if (!flags.current.canAim || gameRef.current.moving || strokeRef.current)
-        return;
-      const rect = renderer.domElement.getBoundingClientRect();
-      const rotated =
-        host.closest(".is-expanded") &&
+    // Pulling the cue back this far (in table units) means full power.
+    const PULL_RANGE = 2;
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+    const cueBall = () => gameRef.current.balls.find((b) => b.id === 0)!;
+    // A 90°-rotated frame (portrait phone showing a landscape table) swaps the
+    // pointer axes: local x runs down the screen, local y runs to the left.
+    const isRotated = () =>
+      !!host.closest(".is-rotated") ||
+      (!!host.closest(".is-expanded") &&
         window.matchMedia("(max-width:760px) and (orientation:portrait)")
-          .matches;
+          .matches);
+    const clothPoint = (e: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const rotated = isRotated();
       const u = (e.clientX - rect.left) / rect.width,
         v = (e.clientY - rect.top) / rect.height;
       mouse.set(
@@ -247,23 +299,62 @@ export default function Table({
         rotated ? u * 2 - 1 : -v * 2 + 1,
       );
       raycaster.setFromCamera(mouse, camera);
-      if (raycaster.ray.intersectPlane(plane, point)) {
-        const b = gameRef.current.balls.find((b) => b.id === 0)!;
-        flags.current.onAim(Math.atan2(point.z - b.y, point.x - b.x));
-      }
+      return raycaster.ray.intersectPlane(plane, point) ? point : null;
     };
-    let dragging = false;
+    const projected = new THREE.Vector3();
+    /** Where a table point lands on screen, in client pixels. */
+    const toClient = (x: number, z: number) => {
+      projected.set(x, RADIUS + 0.035, z).project(camera);
+      const rect = renderer.domElement.getBoundingClientRect(),
+        lx = (projected.x + 1) / 2,
+        ly = (1 - projected.y) / 2;
+      return isRotated()
+        ? [rect.left + (1 - ly) * rect.width, rect.top + lx * rect.height]
+        : [rect.left + lx * rect.width, rect.top + ly * rect.height];
+    };
+    const idle = () =>
+      !flags.current.canAim ||
+      gameRef.current.moving ||
+      gameRef.current.winner !== null ||
+      strokeRef.current !== null;
+    // Dragging the cloth only turns the cue around the ball. The shot is a
+    // separate control, so a stray finger on the table can never fire one.
+    let drag: { id: number; grabAngle: number; startAim: number } | null = null;
     const down = (e: PointerEvent) => {
-      dragging = true;
+      if (drag || idle()) return;
+      const p = clothPoint(e);
+      if (!p) return;
+      const b = cueBall();
+      drag = {
+        id: e.pointerId,
+        grabAngle: Math.atan2(p.z - b.y, p.x - b.x),
+        startAim: angleRef.current,
+      };
       renderer.domElement.setPointerCapture(e.pointerId);
-      setAim(e);
+      e.preventDefault();
     };
     const move = (e: PointerEvent) => {
-      if (dragging || e.pointerType === "mouse") setAim(e);
+      if (!drag || drag.id !== e.pointerId) return;
+      if (idle()) {
+        drag = null;
+        return;
+      }
+      const p = clothPoint(e);
+      if (!p) return;
+      const b = cueBall();
+      const dx = p.x - b.x,
+        dz = p.z - b.y;
+      // Right on top of the ball a pixel of travel is a huge angle: ignore it.
+      if (Math.hypot(dx, dz) < RADIUS * 2.5) return;
+      // Relative turn: the cue follows the finger instead of snapping to it.
+      flags.current.onAim(
+        wrap(drag.startAim + wrap(Math.atan2(dz, dx) - drag.grabAngle)),
+      );
     };
-    const up = () => {
-      dragging = false;
+    const up = (e: PointerEvent) => {
+      if (drag && drag.id === e.pointerId) drag = null;
     };
+    renderer.domElement.style.touchAction = "none";
     renderer.domElement.addEventListener("pointerdown", down);
     renderer.domElement.addEventListener("pointermove", move);
     renderer.domElement.addEventListener("pointerup", up);
@@ -272,14 +363,14 @@ export default function Table({
       lastAngle = Infinity,
       lastPower = -1,
       lastVisible = false;
-    const resize = () => {
+    const resize = (next: "angled" | "top" = view) => {
       sceneDirty = true;
+      viewDirection.copy(VIEWS[next]);
       const w = host.clientWidth,
         h = host.clientHeight;
-      const portrait = flags.current.portraitFit && h > w * 1.08;
-      viewDirection.copy(portrait ? portraitView : landscapeView);
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(1, h);
+      camera.fov = FOV[next];
       const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const right = new THREE.Vector3()
         .crossVectors(new THREE.Vector3(0, 1, 0), viewDirection)
@@ -287,45 +378,50 @@ export default function Table({
       const up = new THREE.Vector3()
         .crossVectors(viewDirection, right)
         .normalize();
+      // Corners of the wooden body only: the soft floor shadow may be cropped,
+      // the table itself never is.
       const corners: THREE.Vector3[] = [];
-      for (const x of [-6.2, 6.2])
-        for (const y of [-0.8, 0.3])
-          for (const z of [-3.5, 3.5]) corners.push(new THREE.Vector3(x, y, z));
-      let distance = 0;
-      for (const corner of corners)
-        distance = Math.max(
-          distance,
-          Math.abs(corner.dot(right)) / (tan * camera.aspect) +
-            corner.dot(viewDirection),
-          Math.abs(corner.dot(up)) / tan + corner.dot(viewDirection),
-        );
-      distance *= portrait ? 1.015 : 1.06;
-      const target = new THREE.Vector3(0, -0.05, 0);
-      camera.position.copy(viewDirection).multiplyScalar(distance);
-      camera.lookAt(target);
-      camera.updateMatrixWorld();
-      camera.updateProjectionMatrix();
-      // The tilt leaves the table off-centre; recentre it in the viewport.
-      const ndc = new THREE.Vector3();
-      let top = -Infinity,
-        bottom = Infinity;
-      for (const corner of corners) {
-        ndc.copy(corner).project(camera);
-        top = Math.max(top, ndc.y);
-        bottom = Math.min(bottom, ndc.y);
-      }
-      const shift = ((top + bottom) / 2) * tan * distance;
-      if (Math.abs(shift) > 0.002) {
-        camera.position.addScaledVector(up, shift);
-        target.addScaledVector(up, shift);
+      for (const x of [-6.12, 6.12])
+        for (const y of [-0.12, 0.27])
+          for (const z of [-3.42, 3.42])
+            corners.push(new THREE.Vector3(x, y, z));
+      // Perspective makes the near rail project wider than the far one, so the
+      // fit is iterative: centre the table in the frame, then zoom to it.
+      const ndc = new THREE.Vector3(),
+        target = new THREE.Vector3(0, -0.02, 0);
+      let distance = 14 * (36 / camera.fov);
+      for (let pass = 0; pass < 6; pass++) {
+        camera.position.copy(target).addScaledVector(viewDirection, distance);
         camera.lookAt(target);
         camera.updateMatrixWorld();
         camera.updateProjectionMatrix();
+        let left = Infinity,
+          rightEdge = -Infinity,
+          bottom = Infinity,
+          top = -Infinity;
+        for (const corner of corners) {
+          ndc.copy(corner).project(camera);
+          left = Math.min(left, ndc.x);
+          rightEdge = Math.max(rightEdge, ndc.x);
+          bottom = Math.min(bottom, ndc.y);
+          top = Math.max(top, ndc.y);
+        }
+        target
+          .addScaledVector(
+            right,
+            ((left + rightEdge) / 2) * tan * camera.aspect * distance,
+          )
+          .addScaledVector(up, ((bottom + top) / 2) * tan * distance);
+        distance *= Math.max(rightEdge - left, top - bottom) / 2 / 0.985;
       }
+      camera.position.copy(target).addScaledVector(viewDirection, distance);
+      camera.lookAt(target);
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
     };
-    const observer = new ResizeObserver(resize);
-    observer.observe(host);
     refit.current = resize;
+    const observer = new ResizeObserver(() => resize(flags.current.view));
+    observer.observe(host);
     resize();
     let frame = 0,
       lastTime = performance.now(),
@@ -338,14 +434,19 @@ export default function Table({
       const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
       const g = gameRef.current;
-      if (!g.solo && g !== previousGame) {
+      // Server states arrive ~30 times a second as whole new objects, so
+      // they are buffered and replayed 70 ms late to look smooth. A game
+      // stepped locally changes in place 120 times a second and must be
+      // drawn directly — buffering it would freeze the table.
+      const interpolated = !g.solo && !flags.current.live;
+      if (interpolated && g !== previousGame) {
         snapshots.push({ time: now, balls: g.balls.map((b) => ({ ...b })) });
         if (snapshots.length > 14) snapshots.shift();
         previousGame = g;
       }
-      const visualBalls = g.solo
-        ? g.balls
-        : sampleSnapshots(snapshots, now - 70);
+      const visualBalls = interpolated
+        ? sampleSnapshots(snapshots, now - 70)
+        : g.balls;
       for (const b of visualBalls) {
         const m = balls.get(b.id)!;
         if (b.pocketed) {
@@ -400,7 +501,10 @@ export default function Table({
             angularSpeed * delta,
           );
       }
-      const b = g.balls.find((b) => b.id === 0)!,
+      // The cue and the aim marks belong to the ball as it is DRAWN, not as
+      // the state has it: online that is the interpolated position, locally
+      // the live one. Its screen position is published in `data-grip`.
+      const b = visualBalls.find((b) => b.id === 0) ?? g.balls[0],
         angle = angleRef.current,
         dx = Math.cos(angle),
         dz = Math.sin(angle);
@@ -420,7 +524,10 @@ export default function Table({
         lastPower = flags.current.power;
         lastVisible = visible;
       }
-      cue.visible = aim.visible = ghost.visible = visible;
+      cue.visible = ghost.visible = visible;
+      if (!visible) target.visible = contact.visible = false;
+      if (!visible && renderer.domElement.dataset.grip)
+        delete renderer.domElement.dataset.grip;
       if (strokeRef.current) {
         sceneDirty = true;
         renderer.shadowMap.needsUpdate = true;
@@ -429,7 +536,15 @@ export default function Table({
         const gap = cueGap(strokeRef.current, now, flags.current.power);
         cue.position.set(b.x - dx * gap, RADIUS + 0.035, b.y - dz * gap);
         cue.rotation.y = -angle;
-        let dist = WIDTH;
+        // Publish where the cue grip sits on screen: the hint layer and the
+        // end-to-end tests use it to grab the stick exactly like a finger does.
+        const grip = toClient(b.x - dx * (gap + 1.9), b.y - dz * (gap + 1.9)),
+          centre = toClient(b.x, b.y);
+        renderer.domElement.dataset.grip = [...grip, ...centre]
+          .map((n) => Math.round(n))
+          .join(",");
+        let dist = WIDTH,
+          hit: (typeof g.balls)[number] | null = null;
         for (let t = RADIUS; t < WIDTH; t += 0.025) {
           const x = b.x + dx * t,
             z = b.y + dz * t;
@@ -451,23 +566,54 @@ export default function Table({
               );
               return Math.hypot(x - a[0] - u * sx, z - a[1] - u * sz) < RADIUS;
             }) ||
-            g.balls.some(
-              (o) =>
-                o.id !== 0 &&
-                !o.pocketed &&
-                Math.hypot(o.x - x, o.y - z) < RADIUS * 2,
-            )
+            (hit =
+              g.balls.find(
+                (o) =>
+                  o.id !== 0 &&
+                  !o.pocketed &&
+                  Math.hypot(o.x - x, o.y - z) < RADIUS * 2,
+              ) ?? null)
           ) {
             dist = t;
             break;
           }
         }
-        const arr = aim.geometry.attributes.position as THREE.BufferAttribute;
-        arr.setXYZ(0, b.x, 0.06, b.y);
-        arr.setXYZ(1, b.x + dx * dist, 0.06, b.y + dz * dist);
-        arr.needsUpdate = true;
-        aim.computeLineDistances();
-        ghost.position.set(b.x + dx * dist, 0.062, b.y + dz * dist);
+        // The circle where the cue ball stops, with one short stripe coming
+        // into it. Nothing is drawn next to the cue ball itself.
+        const gx = b.x + dx * dist,
+          gz = b.y + dz * dist;
+        ghost.position.set(gx, AIM.y, gz);
+        // Keep the stripe clear of both balls, and drop it when a near-touching
+        // ball leaves no room for it.
+        const room = dist - RADIUS * 2 - AIM.gap * 2;
+        contact.visible = visible && room > AIM.contactLength;
+        if (contact.visible)
+          placeStripe(
+            contact,
+            gx - dx * (RADIUS + AIM.gap),
+            gz - dz * (RADIUS + AIM.gap),
+            dx,
+            dz,
+            AIM.contactLength,
+          );
+        // Where the object ball leaves the collision: centre to centre.
+        if (hit) {
+          const ox = hit.x - gx,
+            oz = hit.y - gz,
+            len = Math.hypot(ox, oz) || 1,
+            ux = ox / len,
+            uz = oz / len,
+            reach = RADIUS + AIM.gap + AIM.targetLength;
+          placeStripe(
+            target,
+            hit.x + ux * reach,
+            hit.y + uz * reach,
+            ux,
+            uz,
+            AIM.targetLength,
+          );
+        }
+        target.visible = !!hit;
       }
       if (sceneDirty) {
         renderer.render(scene, camera);
@@ -497,15 +643,12 @@ export default function Table({
         }
       });
       textures.forEach((t) => t.dispose());
-      env.dispose();
-      envScene.dispose();
-      pmrem.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
   }, [resetKey]);
   useEffect(() => {
-    refit.current();
-  }, [portraitFit]);
+    refit.current(view);
+  }, [view]);
   return <div className="table-canvas" ref={container} />;
 }

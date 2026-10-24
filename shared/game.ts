@@ -54,6 +54,14 @@ export type Game = {
   solo: boolean;
   target: Group | "eight" | null;
   canPocketEight: boolean;
+  /** Last shot broke a rule: scratch or no legal first contact. */
+  foul: boolean;
+  /**
+   * How the rack ended. The engine states the fact; the interface says what
+   * it means for the player looking at the screen, because "отличная победа"
+   * under someone else's win is just rude.
+   */
+  ending: "eight" | "early-eight" | null;
 };
 export const groupOf = (id: number): Group => (id < 8 ? "solids" : "stripes");
 export function createGame(solo = false): Game {
@@ -108,6 +116,8 @@ export function createGame(solo = false): Game {
     shots: 0,
     target: null,
     canPocketEight: false,
+    ending: null,
+    foul: false,
     message: solo ? "Стол твой. Начнём?" : "Первый игрок разбивает пирамиду",
     solo,
   };
@@ -140,6 +150,7 @@ export function shoot(g: Game, angle: number, power: number) {
   g.moving = true;
   g.shotPocketed = [];
   g.firstContact = null;
+  g.foul = false;
   g.shots++;
   g.message = "Шары в движении…";
   return true;
@@ -282,6 +293,38 @@ export function step(g: Game, dt: number) {
     finishShot(g);
   }
 }
+/**
+ * Simplified ball-in-hand: the cue ball returns to the head spot, or to the
+ * nearest free place around it. Searching outwards keeps the respot fair and
+ * symmetric instead of dumping the ball in a corner of the table.
+ */
+function respotCue(g: Game) {
+  const cue = g.balls.find((b) => b.id === 0)!;
+  cue.pocketed = false;
+  cue.vx = cue.vy = cue.wx = cue.wz = 0;
+  const fits = (x: number, y: number) =>
+    Math.abs(x) < WIDTH / 2 - RADIUS * 1.6 &&
+    Math.abs(y) < HEIGHT / 2 - RADIUS * 1.6 &&
+    !POCKETS.some(
+      ([px, py]) => Math.hypot(x - px, y - py) < POCKET_CAPTURE_RADIUS + RADIUS,
+    ) &&
+    g.balls.every(
+      (b) =>
+        b.id === 0 || b.pocketed || Math.hypot(b.x - x, b.y - y) > RADIUS * 2.1,
+    );
+  cue.x = -2.8;
+  cue.y = 0;
+  for (let r = 0; r <= 5; r += 0.25)
+    for (let a = 0; a < 360; a += 15) {
+      const x = -2.8 + r * Math.cos((a * Math.PI) / 180),
+        y = r * Math.sin((a * Math.PI) / 180);
+      if (fits(x, y)) {
+        cue.x = x;
+        cue.y = y;
+        return;
+      }
+    }
+}
 function finishShot(g: Game) {
   const p = g.turn,
     own = g.groups[p];
@@ -294,13 +337,15 @@ function finishShot(g: Game) {
       : g.target !== null &&
         (g.firstContact === 8 || groupOf(g.firstContact) !== g.target));
   const foul = scratch || Boolean(wrongFirst);
+  g.foul = foul;
   if (g.shotPocketed.includes(8)) {
     const cleared = g.canPocketEight;
     g.winner = cleared && !foul ? p : 1 - p;
+    g.ending = cleared && !foul ? "eight" : "early-eight";
     g.message =
-      cleared && !foul
-        ? "Восьмёрка в лузе. Отличная победа!"
-        : "Восьмёрка забита раньше времени";
+      g.ending === "eight"
+        ? "Восьмёрка в лузе."
+        : "Восьмёрка забита раньше времени.";
     return;
   }
   const first = g.shotPocketed.find((id) => id !== 0 && id !== 8);
@@ -308,27 +353,7 @@ function finishShot(g: Game) {
     g.groups[p] = groupOf(first);
     g.groups[1 - p] = groupOf(first) === "solids" ? "stripes" : "solids";
   }
-  if (scratch) {
-    const cue = g.balls.find((b) => b.id === 0)!;
-    cue.pocketed = false;
-    cue.x = -2.8;
-    cue.y = 0;
-    outer: for (let x = -3.8; x < 4.5; x += 0.4)
-      for (let y = 0; y < 2.3; y += 0.4) {
-        if (
-          g.balls.every(
-            (b) =>
-              b.id === 0 ||
-              b.pocketed ||
-              Math.hypot(b.x - x, b.y - y) > RADIUS * 2.1,
-          )
-        ) {
-          cue.x = x;
-          cue.y = y;
-          break outer;
-        }
-      }
-  }
+  if (scratch) respotCue(g);
   const scored = g.shotPocketed.some(
     (id) => id !== 0 && id !== 8 && groupOf(id) === g.groups[p],
   );
@@ -340,4 +365,22 @@ function finishShot(g: Game) {
       : scored
         ? "Хороший удар! Продолжай."
         : "Следующий удар — новая возможность";
+}
+
+/**
+ * The line under the result, written for the player who is reading it.
+ * `index` is that player's seat (0 in practice).
+ */
+export function resultText(g: Game, index: number): string {
+  if (g.winner === null) return g.message;
+  const won = g.winner === index;
+  if (g.ending === "eight")
+    return won
+      ? "Восьмёрка в лузе. Партия твоя."
+      : "Соперник закрыл партию восьмёркой.";
+  if (g.ending === "early-eight")
+    return won
+      ? "Соперник забил восьмёрку раньше времени."
+      : "Восьмёрка забита раньше времени. Партия проиграна.";
+  return g.message;
 }

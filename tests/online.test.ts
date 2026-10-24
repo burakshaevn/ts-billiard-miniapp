@@ -1,13 +1,31 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { WebSocket } from "ws";
 const PORT = 3029;
 let server: ChildProcess;
 const peers: WebSocket[] = [];
+// Wallets live in a throwaway file: one player is seeded nearly broke so the
+// "not enough berries" path can be checked without losing matches first.
+const walletDir = mkdtempSync(path.join(tmpdir(), "pool-wallets-")),
+  walletFile = path.join(walletDir, "wallets.json");
+const POOR = "guest:poor12345";
 before(async () => {
+  writeFileSync(
+    walletFile,
+    JSON.stringify({ wallets: { [POOR]: 5 }, charges: [] }),
+  );
   server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    env: { ...process.env, PORT: String(PORT) },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      WALLETS_FILE: walletFile,
+      // A lonely table waits three seconds for a human here, not twenty.
+      BOT_WAIT_MS: "3000",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise<void>((resolve, reject) => {
@@ -30,8 +48,9 @@ before(async () => {
 after(() => {
   peers.forEach((p) => p.terminate());
   server?.kill();
+  rmSync(walletDir, { recursive: true, force: true });
 });
-async function peer(name: string) {
+async function peer(name: string, key?: string) {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
   peers.push(ws);
   const messages: any[] = [];
@@ -45,7 +64,7 @@ async function peer(name: string) {
     ws.once("error", reject);
   });
   const send = (data: unknown) => ws.send(JSON.stringify(data));
-  send({ type: "hello", name });
+  send({ type: "hello", name, key });
   const wait = (predicate: (m: any) => boolean, timeout = 5000) =>
     new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -118,7 +137,7 @@ test("private room can be joined by code but cannot admit a third player", async
   assert.equal(joined.private, true);
   c.send({ type: "join", code: room.code });
   const err = await c.wait((m) => m.type === "error");
-  assert.match(err.message, /занята/);
+  assert.match(err.message, /занят/);
   await pause();
   a.send({ type: "leave" });
   await b.wait((m) => m.type === "opponent_left");
@@ -140,11 +159,13 @@ test("queue can be cancelled without leaving a ghost opponent", async () => {
   b.send({ type: "queue" });
   await b.wait((m) => m.type === "waiting");
   assert.equal(
-    b.messages.some((m) => m.type === "state"),
+    b.messages.some((m) => m.type === "state" && m.players.length === 2),
     false,
+    "the cancelled player was still sitting at the table",
   );
   a.ws.close();
   b.ws.close();
+  await pause();
 });
 
 test("an immediate cancel is honoured even inside the action throttle window", async () => {
@@ -161,12 +182,12 @@ test("an immediate cancel is honoured even inside the action throttle window", a
   b.send({ type: "queue" });
   await b.wait((m) => m.type === "waiting");
   assert.equal(
-    b.messages.some((m) => m.type === "state"),
+    b.messages.some((m) => m.type === "state" && m.players.length === 2),
     false,
     "cancelled player was matched anyway",
   );
   assert.equal(
-    a.messages.some((m) => m.type === "state"),
+    a.messages.some((m) => m.type === "state" && m.players.length === 2),
     false,
   );
   // Same for a private room abandoned right after it was created.
@@ -176,6 +197,177 @@ test("an immediate cancel is honoured even inside the action throttle window", a
   await c.wait((m) => m.type === "left");
   d.send({ type: "join", code: room.code });
   const error = await d.wait((m) => m.type === "error");
-  assert.match(error.message, /не найдена|занята/i);
+  assert.match(error.message, /не найден|занят/i);
   [a, b, c, d].forEach((p) => p.ws.close());
+});
+
+test("an open table is listed with its stake until someone sits down", async () => {
+  const host = await peer("Хозяин", "guest:hostaaaa"),
+    guest = await peer("Гость", "guest:guestbbb"),
+    watcher = await peer("Зритель", "guest:watcherc");
+  host.send({ type: "queue", stake: 25 });
+  await host.wait((m) => m.type === "waiting");
+  // Everyone in the lobby sees the table and the stake it is played for.
+  const listed = await watcher.wait(
+    (m) =>
+      m.type === "tables" && m.tables.some((t: any) => t.host === "Хозяин"),
+  );
+  const table = listed.tables.find((t: any) => t.host === "Хозяин");
+  assert.equal(table.stake, 25);
+  assert.match(table.code, /^[A-F0-9]{6}$/);
+  await pause();
+  // Sitting down takes the stake from both wallets into the pot.
+  guest.send({ type: "join", code: table.code });
+  const sa = await host.wait(
+      (m) => m.type === "state" && m.players.length === 2,
+    ),
+    sb = await guest.wait((m) => m.type === "state" && m.players.length === 2);
+  assert.equal(sa.stake, 25);
+  assert.equal(sa.pot, 50);
+  assert.equal(sb.private, false, "a quick game table is public");
+  const hostWallet = await host.wait(
+      (m) => m.type === "wallet" && m.balance === 125,
+    ),
+    guestWallet = await guest.wait(
+      (m) => m.type === "wallet" && m.balance === 125,
+    );
+  assert.equal(hostWallet.balance, 125);
+  assert.equal(guestWallet.balance, 125);
+  // A busy table is no longer offered to anyone else.
+  const cleared = await watcher.wait(
+    (m) =>
+      m.type === "tables" && !m.tables.some((t: any) => t.host === "Хозяин"),
+  );
+  assert.equal(cleared.tables.length, 0);
+  // Walking out of a staked game hands the whole pot to who stayed.
+  await pause();
+  host.send({ type: "leave" });
+  await guest.wait((m) => m.type === "opponent_left");
+  const paid = await guest.wait(
+    (m) => m.type === "wallet" && m.balance === 175,
+  );
+  assert.equal(paid.balance, 175, "the winner takes both stakes");
+  [host, guest, watcher].forEach((p) => p.ws.close());
+});
+
+test("a quick game only matches tables with the same stake", async () => {
+  const cheap = await peer("Дешёвый", "guest:cheap111"),
+    rich = await peer("Богатый", "guest:rich2222"),
+    rival = await peer("Соперник", "guest:rival333");
+  cheap.send({ type: "queue", stake: 10 });
+  await cheap.wait((m) => m.type === "waiting");
+  await pause();
+  rich.send({ type: "queue", stake: 50 });
+  await rich.wait((m) => m.type === "waiting");
+  assert.equal(
+    cheap.messages.some((m) => m.type === "state" && m.players.length === 2),
+    false,
+    "a 10 berry player must not be dropped into a 50 berry match",
+  );
+  await pause();
+  rival.send({ type: "queue", stake: 50 });
+  const match = await rich.wait(
+    (m) => m.type === "state" && m.players.length === 2,
+  );
+  assert.equal(match.stake, 50);
+  assert.equal(match.pot, 100);
+  assert.equal(
+    cheap.messages.some((m) => m.type === "state" && m.players.length === 2),
+    false,
+  );
+  [cheap, rich, rival].forEach((p) => p.ws.close());
+});
+
+test("a stake nobody can pay is refused, a free table is not", async () => {
+  const broke = await peer("Бедолага", POOR);
+  const wallet = await broke.wait(
+    (m) => m.type === "wallet" && m.balance === 5,
+  );
+  assert.equal(wallet.balance, 5, "the seeded balance survives a reconnect");
+  broke.send({ type: "queue", stake: 50 });
+  const error = await broke.wait((m) => m.type === "error");
+  assert.match(error.message, /Не хватает ягодок/);
+  await pause();
+  // A made up stake is not accepted either: it falls back to a free table.
+  broke.send({ type: "queue", stake: 37 });
+  const table = await broke.wait((m) => m.type === "state");
+  await broke.wait((m) => m.type === "waiting");
+  assert.equal(table.stake, 0, "an arbitrary stake must never reach a room");
+  assert.equal(table.pot, 0, "an empty table holds nothing");
+  broke.ws.close();
+});
+
+test("berries can only be bought when the server has a bot token", async () => {
+  const buyer = await peer("Покупатель", "guest:buyer111");
+  buyer.send({ type: "topup", pack: "berries-350" });
+  const answer = await buyer.wait((m) => m.type === "topup_unavailable");
+  assert.match(answer.reason, /звёздами|бот/i);
+  await pause();
+  // An unknown pack is ignored instead of crediting anything.
+  buyer.send({ type: "topup", pack: "berries-999999" });
+  await pause();
+  assert.equal(
+    buyer.messages.some(
+      (m) =>
+        m.type === "wallet" && m.balance !== 150 && m.balance !== undefined,
+    ),
+    false,
+    "nothing is credited without a payment",
+  );
+  buyer.ws.close();
+});
+
+test("a bot sits down on request, plays its own turns and pays like anyone", async () => {
+  const player = await peer("Человек", "guest:humanbot1");
+  await player.wait((m) => m.type === "wallet" && m.balance === 150);
+  player.send({ type: "bot", stake: 10 });
+  const seated = await player.wait(
+    (m) => m.type === "state" && m.players.length === 2,
+  );
+  const bot = seated.players[1 - seated.yourIndex];
+  assert.equal(bot.bot, true, "the opponent is marked as a bot");
+  assert.ok(bot.name.length > 1, "and it has a name of its own");
+  assert.equal(seated.stake, 10);
+  assert.equal(seated.pot, 20, "the house puts the same stake in");
+  const charged = await player.wait(
+    (m) => m.type === "wallet" && m.balance === 140,
+  );
+  assert.equal(charged.balance, 140);
+  // The bot takes its turn by itself, without anything from the client.
+  if (seated.game.turn !== seated.yourIndex) {
+    const shot = await player.wait(
+      (m) => m.type === "state" && m.game.shots === 1 && m.game.moving,
+      8000,
+    );
+    assert.ok(shot.game.balls.some((b: any) => b.vx !== 0 || b.vy !== 0));
+  } else {
+    await pause();
+    player.send({ type: "shoot", angle: 0.05, power: 0.75 });
+    // After our shot the table belongs to the bot, which answers on its own.
+    const answer = await player.wait(
+      (m) => m.type === "state" && m.game.shots === 2,
+      20000,
+    );
+    assert.equal(answer.game.shots, 2, "the bot answered without a client");
+  }
+  player.send({ type: "leave" });
+  await player.wait((m) => m.type === "left");
+  player.ws.close();
+});
+
+test("a table nobody joins gets a bot instead of an empty room", async () => {
+  const lonely = await peer("Одинокий", "guest:lonely111");
+  lonely.send({ type: "queue", stake: 0 });
+  await lonely.wait((m) => m.type === "waiting");
+  const seated = await lonely.wait(
+    (m) => m.type === "state" && m.players.length === 2,
+    9000,
+  );
+  assert.equal(
+    seated.players[1 - seated.yourIndex].bot,
+    true,
+    "after the wait a bot takes the empty seat",
+  );
+  assert.equal(seated.stake, 0);
+  lonely.ws.close();
 });

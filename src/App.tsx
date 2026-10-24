@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Bot,
   Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
   Copy,
-  Crosshair,
   Flag,
   Gamepad2,
   History,
@@ -22,37 +21,75 @@ import {
   RotateCcw,
   Settings2,
   ShieldCheck,
-  Sparkles,
+  Star,
   Trophy,
   Users,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
+import Berry from "./Berry";
 import Table from "./Table";
+import Avatar from "./Avatar";
 import BallIcon from "./BallIcon";
 import MiniApp from "./MiniApp";
 import {
+  LOGO_URL,
   inviteLink,
   isTelegramClient,
+  playerKey,
   resolveGameServer,
   startRoomCode,
 } from "./config";
 import {
+  PACKS,
+  STAKES,
+  berries,
+  canAfford,
+  stakeLabel,
+  type Stake,
+} from "../shared/wallet";
+import {
   createGame,
+  resultText,
   shoot,
   step,
   shotSpeedMps,
   type Game,
 } from "../shared/game";
 import { STROKE_MS, type CueStroke } from "../shared/rendering";
+import { BOT_NAMES, BOT_SKILL, planShot } from "../shared/bot";
 
-type Player = { id: string; name: string };
+type Player = { id: string; name: string; avatar?: string; bot?: boolean };
 type Match = { date: string; result: string; shots: number; opponent: string };
-type Modal = "rules" | "friends" | "history" | "profile" | "leave" | null;
+/** A table in the lobby list: someone is sitting there, waiting for a rival. */
+export type OpenTable = {
+  code: string;
+  host: string;
+  avatar?: string;
+  stake: number;
+  created: number;
+};
+type Modal =
+  | "rules"
+  | "friends"
+  | "history"
+  | "profile"
+  | "leave"
+  | "tables"
+  | "wallet"
+  | null;
 /** Phones in both orientations get the Mini App layout; wide desktops keep the club page. */
 const COMPACT_QUERY =
   "(max-width:760px),(max-height:520px) and (max-width:1100px)";
+/** Russian plural: 1 удар, 2 удара, 5 ударов. */
+function plural(n: number, one: string, few: string, many: string) {
+  const mod10 = n % 10,
+    mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
 function load<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
@@ -70,7 +107,9 @@ function save(key: string, value: unknown) {
 function App() {
   const [name, setName] = useState(() => load("luza-name", "Гость"));
   const [draftName, setDraftName] = useState(name);
-  const [mode, setMode] = useState<"practice" | "searching" | "online">(
+  // "bot" is a full match against the computer, played in this browser: it
+  // is what makes the game playable with no game server at all.
+  const [mode, setMode] = useState<"practice" | "searching" | "online" | "bot">(
     "practice",
   );
   const [page, setPage] = useState("play"),
@@ -80,7 +119,12 @@ function App() {
   const strokeRef = useRef<CueStroke | null>(null);
   const strokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [power, setPower] = useState(0.65),
-    [sound, setSound] = useState(() => load("luza-sound", true));
+    [sound, setSound] = useState(() => load("luza-sound", true)),
+    // Straight down by default: that is how a pool game on a phone looks,
+    // and the whole table fits the screen without perspective squash.
+    [view, setView] = useState<"angled" | "top">(() =>
+      load<string>("luza-view", "top") === "angled" ? "angled" : "top",
+    );
   // null = still resolving the server address, false = practice-only build.
   const [onlineAvailable, setOnlineAvailable] = useState<boolean | null>(null);
   const [connected, setConnected] = useState(false),
@@ -89,6 +133,8 @@ function App() {
     [myIndex, setMyIndex] = useState(0),
     [code, setCode] = useState(""),
     [joinCode, setJoinCode] = useState("");
+  // My own Telegram photo: drawn next to my name over the table.
+  const [avatar, setAvatar] = useState<string | undefined>(undefined);
   const [expanded, setExpanded] = useState(false);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
@@ -108,16 +154,36 @@ function App() {
     [records, setRecords] = useState<Match[]>(() => load("luza-matches", []));
   const [inviteCopied, setInviteCopied] = useState(false),
     [busy, setBusy] = useState(false);
+  // Berries: the balance and the open tables come from the server, which is
+  // the only authority. Until it answers we show nothing rather than a guess.
+  const [balance, setBalance] = useState<number | null>(null),
+    [tables, setTables] = useState<OpenTable[]>([]),
+    [stake, setStake] = useState<Stake>(() => {
+      const saved = load<number>("luza-stake", 0);
+      return (STAKES as readonly number[]).includes(saved)
+        ? (saved as Stake)
+        : 0;
+    }),
+    // Stake of the table being played right now, and the last payout.
+    [matchStake, setMatchStake] = useState(0),
+    [prize, setPrize] = useState(0),
+    [topupPack, setTopupPack] = useState("");
+  const stakeRef = useRef(stake);
+  stakeRef.current = stake;
+  // Another game with the same opponent: "sent" = we asked, "offered" = they did.
+  const [rematch, setRematch] = useState<"none" | "sent" | "offered">("none");
   const gameRef = useRef<Game>(createGame(true)),
     angleRef = useRef(-0.24),
     socket = useRef<WebSocket | null>(null),
     modeRef = useRef(mode),
     nameRef = useRef(name),
+    avatarRef = useRef<string | undefined>(undefined),
     savedWinner = useRef(false),
     closedRoomsRef = useRef(new Set<string>()),
     currentRoomRef = useRef(""),
     roomSizeRef = useRef(0),
     audioRef = useRef<AudioContext | null>(null),
+    botTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     soundRef = useRef(sound);
   modeRef.current = mode;
   nameRef.current = name;
@@ -125,14 +191,15 @@ function App() {
   const g = gameRef.current;
   const canAim =
     mode === "practice" ||
+    (mode === "bot" && g.turn === myIndex) ||
     (mode === "online" && players.length === 2 && g.turn === myIndex);
   const isWaiting =
     mode === "searching" || (mode === "online" && players.length === 1);
   const notify = (message: string) => setToast(message);
-  function haptic(kind: "shot" | "pocket") {
+  function haptic(kind: "shot" | "pocket" | "tap") {
     try {
       window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(
-        kind === "shot" ? "medium" : "light",
+        kind === "shot" ? "medium" : kind === "pocket" ? "light" : "soft",
       );
     } catch {
       /* Haptics are optional. */
@@ -169,14 +236,59 @@ function App() {
     notify("Нет связи с сервером. Тренировка доступна офлайн.");
     return false;
   };
+  /** Stop a bot shot that has been scheduled but not played yet. */
+  function cancelBot() {
+    if (botTimer.current !== null) clearTimeout(botTimer.current);
+    botTimer.current = null;
+  }
+  /**
+   * The computer opponent of a local match. It uses the same planner as the
+   * server bot and the same `shoot()` as the player — it simply gets its
+   * turn here instead of over the wire.
+   */
+  function botTurn() {
+    const game = gameRef.current;
+    if (modeRef.current !== "bot" || game.moving || game.winner !== null)
+      return;
+    const plan = planShot(game, 1, BOT_SKILL);
+    if (!plan) return;
+    audio("shot");
+    shoot(game, plan.angle, plan.power);
+    setTick((t) => t + 1);
+  }
+  /** A whole rack against the computer, with no server involved. */
+  function startBotMatch() {
+    cancelStroke();
+    cancelBot();
+    closeCurrentRoom();
+    gameRef.current = createGame();
+    angleRef.current = -0.24;
+    setMode("bot");
+    setMyIndex(0);
+    setPlayers([
+      { id: "me", name: nameRef.current, avatar: avatarRef.current },
+      {
+        id: "bot",
+        name: BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
+        bot: true,
+      },
+    ]);
+    setCode("");
+    setRematch("none");
+    setResetKey((k) => k + 1);
+    savedWinner.current = false;
+    setBusy(false);
+    setModal(null);
+    setScreen("game");
+    setTick((t) => t + 1);
+  }
   function cancelStroke() {
     if (strokeTimer.current !== null) clearTimeout(strokeTimer.current);
     strokeRef.current = null;
     setPreparing(false);
   }
-  function resetPractice(backToLobby = false) {
-    cancelStroke();
-    if (backToLobby) setScreen("lobby");
+  /** Forget the online room we were in, so its late updates are ignored. */
+  function closeCurrentRoom() {
     if (currentRoomRef.current)
       closedRoomsRef.current.add(currentRoomRef.current);
     if (closedRoomsRef.current.size > 100)
@@ -185,8 +297,15 @@ function App() {
       );
     currentRoomRef.current = "";
     roomSizeRef.current = 0;
+  }
+  function resetPractice(backToLobby = false) {
+    cancelStroke();
+    cancelBot();
+    if (backToLobby) setScreen("lobby");
+    closeCurrentRoom();
     gameRef.current = createGame(true);
     angleRef.current = -0.24;
+    setRematch("none");
     setMode("practice");
     setPlayers([]);
     setCode("");
@@ -197,16 +316,37 @@ function App() {
   }
   /** Compact layout: leave the table and go back to the Mini App menu. */
   function leaveTable() {
-    if (modeRef.current === "online" && roomSizeRef.current === 2)
+    if (
+      modeRef.current === "online" &&
+      roomSizeRef.current === 2 &&
+      gameRef.current.winner === null
+    )
       return setModal("leave");
-    if (modeRef.current === "practice") {
+    if (modeRef.current === "practice" || modeRef.current === "bot") {
       cancelStroke();
-      setScreen("lobby");
+      cancelBot();
+      if (modeRef.current === "bot") resetPractice(true);
+      else setScreen("lobby");
       return;
     }
     exitToPractice();
   }
+  /**
+   * The button under the result. Whoever we were just playing, we play
+   * again with them: the bot locally, the opponent over the wire, the
+   * practice rack on our own.
+   */
+  function playAgain() {
+    if (mode === "bot") return startBotMatch();
+    if (mode === "online") return askRematch();
+    resetPractice();
+  }
   function startPractice() {
+    if (mode === "bot") {
+      resetPractice();
+      setScreen("game");
+      return;
+    }
     if (mode !== "practice") return setModal("leave");
     resetPractice();
     setScreen("game");
@@ -228,19 +368,108 @@ function App() {
     if (!requireServer()) return;
     setModal("friends");
   }
-  function startSearch() {
+  /** The lobby with open tables: pick a stake, sit down or open your own. */
+  function openTables() {
     if (!requireServer()) return;
-    if (!connected)
-      return notify(
-        "Подключаемся к серверу. Попробуй ещё раз через пару секунд.",
-      );
-    if (mode === "online") return setModal("leave");
+    setModal("tables");
+  }
+  function openWallet() {
+    setModal("wallet");
+  }
+  function chooseStake(next: Stake) {
+    setStake(next);
+    save("luza-stake", next);
+    haptic("tap");
+  }
+  /** Can I afford the stake I have selected? */
+  const affordable = balance === null || canAfford(balance, stake);
+  function readyToPlay() {
+    if (!requireServer()) return false;
+    if (!connected) {
+      notify("Подключаемся к серверу. Попробуй ещё раз через пару секунд.");
+      return false;
+    }
+    if (mode === "online") {
+      setModal("leave");
+      return false;
+    }
+    return true;
+  }
+  /** Quick game: the oldest open table with this stake, or a new one of mine. */
+  function startSearch() {
+    if (!readyToPlay()) return;
+    cancelBot();
+    if (!affordable) {
+      notify(`Не хватает ягодок: нужно ${stake}, а у тебя ${balance}.`);
+      return;
+    }
     cancelStroke();
     setBusy(true);
-    send({ type: "queue" });
+    setModal(null);
+    send({ type: "queue", stake: stakeRef.current });
     setSearchSeconds(0);
   }
-  function hit() {
+  /** Sit down at a table someone is already waiting at. */
+  function sitAt(table: OpenTable) {
+    if (!readyToPlay()) return;
+    cancelBot();
+    if (balance !== null && !canAfford(balance, table.stake)) {
+      notify(`Не хватает ягодок: за этот стол нужно ${table.stake}.`);
+      return;
+    }
+    cancelStroke();
+    setBusy(true);
+    setModal(null);
+    send({ type: "join", code: table.code });
+  }
+  /**
+   * Play a computer opponent right now. With a game server the bot sits at
+   * a real table and the stake is real; without one the whole match runs
+   * here in the browser, which is what keeps the game playable on a static
+   * deployment.
+   */
+  function playBot() {
+    if (onlineAvailable === false || !connected) {
+      startBotMatch();
+      return;
+    }
+    if (mode === "online") return setModal("leave");
+    if (!affordable) {
+      notify(`Не хватает ягодок: нужно ${stake}, а у тебя ${balance}.`);
+      return;
+    }
+    cancelStroke();
+    cancelBot();
+    setBusy(true);
+    setModal(null);
+    send({ type: "bot", stake: stakeRef.current });
+    setSearchSeconds(0);
+  }
+  /** Buy berries for Telegram Stars. */
+  function buyBerries(packId: string) {
+    if (!connected) {
+      notify("Нет связи с сервером — пополнение временно недоступно.");
+      return;
+    }
+    setTopupPack(packId);
+    send({ type: "topup", pack: packId });
+  }
+  function askRematch() {
+    if (!send({ type: "rematch" })) {
+      notify("Нет связи с сервером. Соперника о реванше не спросить.");
+      return;
+    }
+    setRematch("sent");
+  }
+  function toggleView() {
+    setView((v) => {
+      const next = v === "top" ? "angled" : "top";
+      save("luza-view", next);
+      return next;
+    });
+    haptic("tap");
+  }
+  function hit(shotPower: number = power) {
     if (!canAim || g.moving || g.winner !== null || strokeRef.current) return;
     // Unlock audio during the user gesture; play the click at tip contact, not on button press.
     if (soundRef.current)
@@ -253,7 +482,7 @@ function App() {
     const stroke = {
       startedAt: performance.now(),
       angle: angleRef.current,
-      power,
+      power: shotPower,
     };
     strokeRef.current = stroke;
     setPreparing(true);
@@ -292,6 +521,18 @@ function App() {
       if (strokeTimer.current !== null) clearTimeout(strokeTimer.current);
     };
   }, []);
+  // The phone screen has no message line, so the one thing a player cannot
+  // guess — why the turn went away — is announced once, briefly.
+  const lastShot = useRef(0);
+  useEffect(() => {
+    const game = gameRef.current;
+    if (game.moving || game.shots === lastShot.current) return;
+    const first = lastShot.current === 0;
+    lastShot.current = game.shots;
+    if (first || !game.foul || game.winner !== null) return;
+    if (modeRef.current !== "practice" || game.shotPocketed.includes(0))
+      notify(game.message);
+  }, [tick]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4200);
@@ -349,7 +590,16 @@ function App() {
       ws.onopen = () => {
         if (!alive) return;
         setConnected(true);
-        ws.send(JSON.stringify({ type: "hello", name: nameRef.current }));
+        ws.send(
+          JSON.stringify({
+            type: "hello",
+            name: nameRef.current,
+            avatar: avatarRef.current,
+            // Which wallet is mine; see playerKey() for what it does not prove.
+            key: playerKey(),
+            tgId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+          }),
+        );
         const room = startRoomCode();
         if (room) {
           ws.send(JSON.stringify({ type: "join", code: room }));
@@ -365,6 +615,33 @@ function App() {
           return;
         }
         if (m.type === "population") setPopulation(m.count);
+        if (m.type === "wallet" && typeof m.balance === "number")
+          setBalance(m.balance);
+        if (m.type === "tables" && Array.isArray(m.tables))
+          setTables(m.tables as OpenTable[]);
+        if (m.type === "topup_link" && typeof m.url === "string") {
+          setTopupPack("");
+          const tg = window.Telegram?.WebApp;
+          if (tg?.openInvoice)
+            tg.openInvoice(m.url, (status) => {
+              // Status is a hint for the UI only: berries are credited by the
+              // payment webhook, which arrives as a `wallet` message.
+              if (status === "paid") notify("Оплата прошла, ягодки зачисляем.");
+              else if (status === "failed")
+                notify("Платёж не прошёл. Ягодки не списаны.");
+            });
+          else window.open(m.url, "_blank", "noopener");
+        }
+        if (m.type === "topup_unavailable") {
+          setTopupPack("");
+          notify(m.reason || "Пополнение сейчас недоступно.");
+        }
+        if (m.type === "topup_done") {
+          setTopupPack("");
+          notify("Ягодки зачислены.");
+        }
+        if (m.type === "rematch_sent") setRematch("sent");
+        if (m.type === "rematch_offer") setRematch("offered");
         if (m.type === "waiting") {
           setMode("searching");
           setBusy(false);
@@ -372,10 +649,16 @@ function App() {
         if (m.type === "state") {
           if (closedRoomsRef.current.has(m.code)) return;
           const wasSolo = gameRef.current.solo;
+          // A rematch keeps the room but rewinds the shot counter.
+          const restarted =
+            m.game.shots === 0 && gameRef.current.shots > 0 && !wasSolo;
           const newRoom = currentRoomRef.current !== m.code;
           const joined = roomSizeRef.current !== m.players.length;
           currentRoomRef.current = m.code;
           roomSizeRef.current = m.players.length;
+          setMatchStake(typeof m.stake === "number" ? m.stake : 0);
+          if (typeof m.prize === "number" && m.prize > 0) setPrize(m.prize);
+          if (restarted || newRoom) setPrize(0);
           if (m.game.moving || newRoom) cancelStroke();
           gameRef.current = m.game;
           setPlayers(m.players);
@@ -391,9 +674,11 @@ function App() {
                 setExpanded(true);
             }
           }
-          if (wasSolo || newRoom) {
+          if (wasSolo || newRoom || restarted) {
             setResetKey((k) => k + 1);
             savedWinner.current = false;
+            setRematch("none");
+            cancelStroke();
           }
           setTick((t) => t + 1);
         }
@@ -485,8 +770,8 @@ function App() {
       tg.ready();
       tg.expand();
       setCompact(true);
-      tg.setHeaderColor?.("#101715");
-      tg.setBackgroundColor?.("#101715");
+      tg.setHeaderColor?.("#0d1210");
+      tg.setBackgroundColor?.("#0d1210");
       syncTelegramControls();
       const syncViewport = () => {
         const style = document.documentElement.style;
@@ -517,8 +802,22 @@ function App() {
         setName(n);
         nameRef.current = n;
         save("luza-name", n);
+        // Telegram hands out the profile photo of the player; the opponent
+        // sees it over the table, so only a plain https link is forwarded.
+        const photo = user.photo_url;
+        avatarRef.current =
+          typeof photo === "string" && /^https:\/\//.test(photo)
+            ? photo.slice(0, 300)
+            : undefined;
+        setAvatar(avatarRef.current);
         if (socket.current?.readyState === WebSocket.OPEN)
-          socket.current.send(JSON.stringify({ type: "hello", name: n }));
+          socket.current.send(
+            JSON.stringify({
+              type: "hello",
+              name: n,
+              avatar: avatarRef.current,
+            }),
+          );
       }
     };
     let script: HTMLScriptElement | undefined;
@@ -551,7 +850,8 @@ function App() {
       const elapsed = Math.min((now - last) / 1000, 0.25);
       last = now;
       const game = gameRef.current;
-      if (modeRef.current === "practice" && game.moving) {
+      const local = modeRef.current === "practice" || modeRef.current === "bot";
+      if (local && game.moving) {
         acc += elapsed;
         const pockets = game.shotPocketed.length;
         while (acc >= 1 / 120) {
@@ -567,6 +867,22 @@ function App() {
           setTick((t) => t + 1);
           ui = 0;
         }
+        // The balls have just stopped and the table belongs to the bot:
+        // give it a moment to "think", the way the server bot does.
+        if (
+          !game.moving &&
+          modeRef.current === "bot" &&
+          game.winner === null &&
+          game.turn === 1 &&
+          botTimer.current === null
+        )
+          botTimer.current = setTimeout(
+            () => {
+              botTimer.current = null;
+              botTurn();
+            },
+            900 + Math.random() * 700,
+          );
       } else acc = 0;
       frame = requestAnimationFrame(run);
     };
@@ -600,7 +916,9 @@ function App() {
       opponent:
         mode === "practice"
           ? "Тренировка"
-          : players[1 - myIndex]?.name || "Соперник",
+          : `${players[1 - myIndex]?.name || "Соперник"}${
+              players[1 - myIndex]?.bot ? " (бот)" : ""
+            }`,
     };
     setRecords((prev) => {
       const next = [record, ...prev].slice(0, 30);
@@ -631,9 +949,87 @@ function App() {
     setPage(next);
   }
   const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
+  // On the rotated game screen the toast is drawn inside the frame instead:
+  // floating over the physical bottom edge, it covered the cue.
+  const gameToast = compact && screen === "game";
+  /** Stake chips: the bet both players put on the table. */
+  const stakePicker = (
+    <div className="stake-row" role="group" aria-label="Ставка">
+      {STAKES.map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={"stake-chip" + (value === stake ? " is-active" : "")}
+          aria-pressed={value === stake}
+          // The chips show bare numbers so all five fit a phone in one row;
+          // the currency is in the heading, the button and the screen reader.
+          aria-label={value === 0 ? "Без ставки" : stakeLabel(value)}
+          disabled={balance !== null && !canAfford(balance, value)}
+          onClick={() => chooseStake(value)}
+        >
+          {value === 0 ? "Без ставки" : value}
+        </button>
+      ))}
+    </div>
+  );
+  /** The open tables themselves: tap one to sit down against its host. */
+  const tableList = (
+    <ul className="table-list">
+      {tables.length === 0 && (
+        <li className="table-empty">
+          Свободных столов нет. Открой свой — соперник подсядет.
+        </li>
+      )}
+      {tables.map((t) => (
+        <li key={t.code}>
+          <button
+            type="button"
+            className="table-row"
+            disabled={
+              busy || (balance !== null && !canAfford(balance, t.stake))
+            }
+            onClick={() => sitAt(t)}
+          >
+            <Avatar name={t.host} src={t.avatar} />
+            <span className="table-host">
+              {t.host}
+              <em>ждёт соперника</em>
+            </span>
+            <span
+              className={"table-stake" + (t.stake > 0 ? " is-paid" : "")}
+              title={stakeLabel(t.stake)}
+            >
+              {t.stake > 0 ? (
+                <>
+                  {t.stake}
+                  <Berry size={12} />
+                </>
+              ) : (
+                "без ставки"
+              )}
+            </span>
+            <ArrowRight size={17} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+  /** Balance chip: shows the berries and opens the wallet. */
+  const balanceChip = (className: string) => (
+    <button
+      type="button"
+      className={className}
+      onClick={openWallet}
+      aria-label="Кошелёк: ягодки и пополнение"
+      title="Кошелёк: ягодки и пополнение"
+    >
+      <Berry size={14} />
+      <strong>{balance === null ? "—" : balance}</strong>
+    </button>
+  );
   const overlays = (
     <>
-      {toast && (
+      {toast && !gameToast && (
         <div className="toast" role="status">
           <span>
             <Check size={16} />
@@ -678,8 +1074,9 @@ function App() {
                   <div>
                     <h3>Прицелься и ударь</h3>
                     <p>
-                      Наведи курсор или проведи пальцем по столу. Пунктир
-                      покажет направление битка. Выбери силу и нажми «Ударить».
+                      {compact
+                        ? "Проведи пальцем по сукну — кий повернётся. Белый кружок показывает, где биток встретит шар. Потом оттяни кий сбоку и отпусти: чем дальше оттянул, тем сильнее удар."
+                        : "Проведи мышью по столу — кий повернётся. Белый кружок показывает, где биток встретит шар. Выбери силу и нажми «Ударить»."}
                     </p>
                   </div>
                 </div>
@@ -753,7 +1150,7 @@ function App() {
                       if (mode === "online" && players.length === 2)
                         return setModal("leave");
                       setBusy(true);
-                      send({ type: "create" });
+                      send({ type: "create", stake: stakeRef.current });
                       setSearchSeconds(0);
                     }}
                   >
@@ -761,7 +1158,7 @@ function App() {
                     {busy ? "Создаём комнату…" : "Создать свой стол"}
                   </button>
                 )}
-                <div className="panel-separator">
+                <div className="panel-separator labelled">
                   <span>есть приглашение?</span>
                 </div>
                 <form
@@ -820,7 +1217,10 @@ function App() {
                     </p>
                     <button
                       className="primary-button"
-                      onClick={() => setModal(null)}
+                      onClick={() => {
+                        setModal(null);
+                        if (compact) startPractice();
+                      }}
                     >
                       Пора играть <ArrowRight size={18} />
                     </button>
@@ -837,7 +1237,8 @@ function App() {
                         <div>
                           <strong>{r.result}</strong>
                           <span>
-                            {r.opponent} · {r.shots} ударов
+                            {r.opponent} · {r.shots}{" "}
+                            {plural(r.shots, "удар", "удара", "ударов")}
                           </span>
                         </div>
                         <time>
@@ -868,7 +1269,8 @@ function App() {
                     const next = draftName.trim() || "Гость";
                     setName(next);
                     save("luza-name", next);
-                    send({ type: "hello", name: next });
+                    if (socket.current?.readyState === WebSocket.OPEN)
+                      send({ type: "hello", name: next });
                     setModal(null);
                     notify("Имя сохранено. Приятной игры!");
                   }}
@@ -900,6 +1302,103 @@ function App() {
                 </p>
               </>
             )}
+            {modal === "tables" && (
+              <>
+                <span className="modal-kicker">ОТКРЫТЫЕ СТОЛЫ</span>
+                <h2 id="modal-title">
+                  Выбери стол<span>.</span>
+                </h2>
+                <p className="modal-intro">
+                  За этими столами ждут соперника. Ставка — ягодки, которые
+                  кладут оба: победитель забирает обе.
+                </p>
+                {stakePicker}
+                {tableList}
+                <button
+                  className="primary-button"
+                  disabled={busy || !affordable}
+                  onClick={startSearch}
+                >
+                  <Plus size={18} />
+                  {busy ? (
+                    "Садимся за стол…"
+                  ) : stake > 0 ? (
+                    <>
+                      Открыть свой стол · {stake}
+                      <Berry size={13} />
+                    </>
+                  ) : (
+                    "Открыть свой стол"
+                  )}
+                </button>
+                <button
+                  className="friend-button bot-button"
+                  disabled={busy || !affordable}
+                  onClick={playBot}
+                >
+                  <Bot size={17} />
+                  Сыграть с ботом
+                  <ArrowRight size={17} />
+                </button>
+                <p className="subtle-text">
+                  {balance === null
+                    ? "Баланс подгружается…"
+                    : `У тебя ${berries(balance)}.`}{" "}
+                  <button className="link-button" onClick={openWallet}>
+                    Пополнить
+                  </button>
+                </p>
+              </>
+            )}
+            {modal === "wallet" && (
+              <>
+                <span className="modal-kicker">КОШЕЛЁК</span>
+                <h2 id="modal-title">
+                  {balance === null ? "Ягодки" : berries(balance)}
+                  <span>.</span>
+                </h2>
+                <p className="modal-intro">
+                  Ягодки — валюта стола: оба игрока ставят поровну, победитель
+                  забирает банк. Пополняются звёздами Telegram.
+                </p>
+                <div className="pack-list">
+                  {PACKS.map((pack) => (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      className="pack-row"
+                      disabled={!!topupPack || !connected}
+                      onClick={() => buyBerries(pack.id)}
+                    >
+                      <span className="pack-berries">
+                        <Berry size={16} />
+                        <span>{pack.berries}</span>
+                        <em>ягодок</em>
+                      </span>
+                      <span className="pack-price">
+                        {topupPack === pack.id ? (
+                          <LoaderCircle className="spin" size={16} />
+                        ) : (
+                          <>
+                            {pack.stars}
+                            <Star
+                              size={13}
+                              fill="currentColor"
+                              strokeWidth={0}
+                            />
+                          </>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="subtle-text">
+                  {onlineAvailable === false
+                    ? "Кошелёк и ставки живут на игровом сервере, а в этой сборке его нет: доступна только тренировка."
+                    : "Оплата идёт звёздами Telegram (XTR) внутри приложения. Ягодки зачисляются, когда Telegram подтвердит платёж. Без подключённого бота пополнение недоступно — играй на стартовые."}
+                </p>
+              </>
+            )}
             {modal === "leave" && (
               <>
                 <span className="modal-kicker">СМЕНИТЬ СТОЛ</span>
@@ -909,6 +1408,9 @@ function App() {
                 <p className="modal-intro">
                   Текущая комната закроется для обоих игроков. Ты вернёшься к
                   свободной тренировке.
+                  {matchStake > 0 && players.length === 2
+                    ? ` Ставка ${stakeLabel(matchStake)} останется сопернику.`
+                    : ""}
                 </p>
                 <div className="modal-actions">
                   <button
@@ -939,7 +1441,15 @@ function App() {
           strokeRef={strokeRef}
           resetKey={resetKey}
           onAim={(a) => (angleRef.current = a)}
+          onShoot={(p: number) => hit(p)}
+          telegram={
+            isTelegramClient() && !!window.Telegram?.WebApp?.BackButton?.show
+          }
+          toast={gameToast ? toast : ""}
+          view={view}
+          onToggleView={toggleView}
           canAim={canAim}
+          live={mode !== "online"}
           isWaiting={isWaiting}
           mode={mode}
           players={players}
@@ -949,7 +1459,6 @@ function App() {
           onlineAvailable={onlineAvailable}
           population={population}
           power={power}
-          setPower={setPower}
           preparing={preparing}
           busy={busy}
           searchSeconds={searchSeconds}
@@ -957,9 +1466,14 @@ function App() {
           name={name}
           sound={sound}
           matches={records.length}
-          onHit={hit}
+          balance={balance}
+          matchStake={matchStake}
+          prize={prize}
+          openTables={tables.length}
           onPractice={startPractice}
-          onFindOpponent={startSearch}
+          onFindOpponent={openTables}
+          onPlayBot={playBot}
+          onWallet={openWallet}
           onFriends={openFriends}
           onRules={() => setModal("rules")}
           onHistory={() => setModal("history")}
@@ -969,7 +1483,9 @@ function App() {
           }}
           onToggleSound={() => setSound((v) => !v)}
           onBack={leaveTable}
+          rematch={rematch}
           onRestart={() => resetPractice()}
+          onPlayAgain={playAgain}
           onCancelSearch={exitToPractice}
           onCopyInvite={copyInvite}
         />
@@ -993,15 +1509,9 @@ function App() {
             changePage("play");
           }}
         >
-          <span className="brand-symbol">
-            <span>8</span>
-          </span>
-          <span>
-            луза<span className="brand-dot">.</span>
-            <small>БИЛЬЯРДНЫЙ КЛУБ</small>
-          </span>
+          <img className="brand-symbol" src={LOGO_URL} alt="" />
+          <span>Amazing Pool</span>
         </a>
-        <div className="nav-caption">ТВОЁ ПРОСТРАНСТВО</div>
         <nav>
           <button
             className={page === "play" ? "nav-item active" : "nav-item"}
@@ -1041,7 +1551,7 @@ function App() {
         <div className="sidebar-bottom">
           <div className="server-status">
             <i className={connected ? "live" : ""} />
-            {connected ? "Клуб открыт" : "Подключаемся…"}
+            {connected ? "Сервер на связи" : "Подключаемся…"}
             <span>v 0.1</span>
           </div>
           <button
@@ -1051,11 +1561,8 @@ function App() {
               setModal("profile");
             }}
           >
-            <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
-            <span>
-              <strong>{name}</strong>
-              <small>Любитель красивой игры</small>
-            </span>
+            <Avatar name={name} src={avatar} />
+            <strong>{name}</strong>
             <Settings2 size={17} />
           </button>
         </div>
@@ -1070,17 +1577,16 @@ function App() {
             >
               <Menu size={22} />
             </button>
-            <span>Клуб</span>
-            <ChevronRight size={13} />
             <strong>Игровая</strong>
           </div>
           <div className="top-actions">
             <span className="online-badge">
               <i />
               {connected
-                ? `${population} ${population % 10 === 1 && population % 100 !== 11 ? "игрок" : population % 10 >= 2 && population % 10 <= 4 && (population % 100 < 12 || population % 100 > 14) ? "игрока" : "игроков"} в клубе`
+                ? `${population} ${plural(population, "игрок", "игрока", "игроков")} онлайн`
                 : "Офлайн-тренировка"}
             </span>
+            {onlineAvailable !== false && balanceChip("balance-chip")}
             <span className="top-divider" />
             <button
               className="icon-button sound-top"
@@ -1090,72 +1596,62 @@ function App() {
               {sound ? <Volume2 size={19} /> : <VolumeX size={19} />}
             </button>
             <button
-              className="avatar top-avatar"
+              className="top-avatar"
               title="Профиль"
               onClick={() => {
                 setDraftName(name);
                 setModal("profile");
               }}
             >
-              {name.slice(0, 1).toUpperCase()}
+              <Avatar name={name} src={avatar} />
             </button>
           </div>
         </header>
         <main>
-          <section className="page-heading">
-            <div>
-              <div className="eyebrow">
-                <span />
-                ВРЕМЯ ХОРОШЕЙ ИГРЫ
-              </div>
-              <h1>
-                Встретимся у стола<span>.</span>
-              </h1>
-              <p>Точный удар. Приятная компания. Всё остальное подождёт.</p>
-            </div>
-            <button className="quiet-link" onClick={() => setModal("rules")}>
-              Впервые здесь? <ArrowUpRight size={17} />
-            </button>
-          </section>
           <div className="game-layout">
             <section className={`table-card ${expanded ? "is-expanded" : ""}`}>
               <div className="table-card-heading">
-                <div className="table-title">
-                  <span className="table-dot" />
-                  <h2>
-                    {mode === "practice"
-                      ? "Твой тренировочный стол"
-                      : mode === "searching"
-                        ? "Ищем хорошую компанию"
-                        : players.length < 2
-                          ? "Стол для своих"
-                          : "Игра началась"}
-                  </h2>
+                <div className="versus">
+                  <span
+                    className={`versus-side${mode !== "practice" && canAim && !isWaiting ? " is-turn" : ""}`}
+                  >
+                    <Avatar
+                      name={players[myIndex]?.name || name}
+                      src={players[myIndex]?.avatar || avatar}
+                    />
+                    <b>{players[myIndex]?.name || name}</b>
+                  </span>
+                  {mode !== "practice" && (
+                    <>
+                      <span className="versus-mark">VS</span>
+                      <span
+                        className={`versus-side${!canAim && !isWaiting ? " is-turn" : ""}`}
+                      >
+                        <Avatar
+                          name={players[1 - myIndex]?.name || "Соперник"}
+                          src={players[1 - myIndex]?.avatar}
+                          bot={players[1 - myIndex]?.bot}
+                        />
+                        <b>{players[1 - myIndex]?.name || "Соперник"}</b>
+                        {players[1 - myIndex]?.bot && (
+                          <em className="bot-tag">бот</em>
+                        )}
+                      </span>
+                    </>
+                  )}
                 </div>
                 <span className="mode-tag">
                   {mode === "practice"
-                    ? "ПРАКТИКА"
-                    : code
-                      ? "С ДРУГОМ"
-                      : "ОНЛАЙН"}
+                    ? "ТРЕНИРОВКА"
+                    : mode === "bot"
+                      ? "С БОТОМ"
+                      : code
+                        ? "С ДРУГОМ"
+                        : "ОНЛАЙН"}
                 </span>
-              </div>
-              <div className="table-subheading">
-                <span>
-                  {mode === "practice"
-                    ? "Никакой спешки. Только ты и следующий удар."
-                    : players.length === 2
-                      ? `${players[0].name}  ·  ${players[1].name}`
-                      : "Твой следующий соперник уже где-то рядом."}
-                </span>
-                <span className="table-number">СТОЛ № 01</span>
               </div>
               <div className="table-stage">
                 <div className="stage-topline">
-                  <span className="view-label">
-                    <span className="tiny-square" />
-                    3D · ЖИВАЯ ФИЗИКА
-                  </span>
                   <button
                     className="view-help"
                     title={expanded ? "Свернуть стол" : "Развернуть стол"}
@@ -1173,23 +1669,13 @@ function App() {
                   gameRef={gameRef}
                   angleRef={angleRef}
                   onAim={(a) => (angleRef.current = a)}
+                  view={view}
                   canAim={canAim && !isWaiting}
                   power={power}
+                  live={mode !== "online"}
                   resetKey={resetKey}
                   strokeRef={strokeRef}
                 />
-                {!isWaiting && g.winner === null && (
-                  <div className="table-hint">
-                    <Crosshair size={13} />
-                    {g.moving
-                      ? "Хороший удар начинается с точности"
-                      : g.shots > 0
-                        ? g.message
-                        : mode === "online" && !canAim
-                          ? "Соперник выбирает направление"
-                          : "Наведи прицел на столе — и сделай свой ход"}
-                  </div>
-                )}
                 {isWaiting && (
                   <div className="table-overlay">
                     <div className="waiting-card">
@@ -1226,19 +1712,36 @@ function App() {
                       <h3>
                         {g.winner === (mode === "practice" ? 0 : myIndex)
                           ? "Красивая победа!"
-                          : "Ещё один раунд?"}
+                          : "Поражение"}
                       </h3>
-                      <p>{g.message}</p>
+                      <p>
+                        {resultText(g, mode === "practice" ? 0 : myIndex)}
+                        {mode === "online" && rematch === "offered"
+                          ? " Соперник предлагает сыграть ещё."
+                          : ""}
+                      </p>
                       <button
                         className="primary-button"
-                        onClick={() =>
-                          mode === "practice"
-                            ? resetPractice()
-                            : exitToPractice()
-                        }
+                        disabled={mode === "online" && rematch === "sent"}
+                        onClick={playAgain}
                       >
-                        Вернуться за стол <ArrowRight size={18} />
+                        {mode === "practice"
+                          ? "Вернуться за стол"
+                          : mode === "bot"
+                            ? "Ещё партию"
+                            : rematch === "sent"
+                              ? "Ждём соперника…"
+                              : "Сыграть ещё"}
+                        <ArrowRight size={18} />
                       </button>
+                      {mode !== "practice" && (
+                        <button
+                          className="text-button"
+                          onClick={exitToPractice}
+                        >
+                          Выйти из матча
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1312,28 +1815,32 @@ function App() {
                 <button
                   className="reset-button icon-button"
                   aria-label={
-                    mode === "practice"
-                      ? "Расставить шары заново"
-                      : "Выйти из матча"
+                    mode === "online"
+                      ? "Выйти из матча"
+                      : "Расставить шары заново"
                   }
                   title={
-                    mode === "practice"
-                      ? "Расставить шары заново"
-                      : "Выйти из матча"
+                    mode === "online"
+                      ? "Выйти из матча"
+                      : "Расставить шары заново"
                   }
                   onClick={() =>
-                    mode === "practice" ? resetPractice() : setModal("leave")
+                    mode === "online"
+                      ? setModal("leave")
+                      : mode === "bot"
+                        ? startBotMatch()
+                        : resetPractice()
                   }
                 >
-                  {mode === "practice" ? (
-                    <RotateCcw size={18} />
-                  ) : (
+                  {mode === "online" ? (
                     <Flag size={18} />
+                  ) : (
+                    <RotateCcw size={18} />
                   )}
                 </button>
                 <button
                   className="hit-button"
-                  onClick={hit}
+                  onClick={() => hit()}
                   disabled={
                     !canAim ||
                     isWaiting ||
@@ -1352,20 +1859,6 @@ function App() {
               </div>
             </section>
             <aside className="match-panel">
-              <div className="panel-eyebrow">
-                <span className="live-dot" />
-                ОНЛАЙН-БИЛЬЯРД
-              </div>
-              <h2>
-                Хорошая игра
-                <br />
-                начинается здесь.
-              </h2>
-              <p className="panel-description">
-                Знакомый бильярд.
-                <br />
-                Новые соперники. Твой ритм.
-              </p>
               <div className="game-choice">
                 <div className="game-choice-icon">
                   <BallIcon />
@@ -1382,26 +1875,11 @@ function App() {
                   <ChevronDown size={17} />
                 </button>
               </div>
-              <div className="match-details">
-                <div>
-                  <span>
-                    <Users size={15} />
-                    Соперник
-                  </span>
-                  <strong>Случайный игрок</strong>
-                </div>
-                <div>
-                  <span>
-                    <ShieldCheck size={15} />
-                    Ставки
-                  </span>
-                  <strong>Только интерес</strong>
-                </div>
-              </div>
+              {stakePicker}
               <button
                 className="primary-button find-button"
                 onClick={isWaiting ? exitToPractice : startSearch}
-                disabled={busy}
+                disabled={busy || (!isWaiting && !affordable)}
               >
                 {busy ? (
                   <LoaderCircle className="spin" size={18} />
@@ -1411,11 +1889,18 @@ function App() {
                   <Gamepad2 size={19} />
                 )}
                 <span>
-                  {isWaiting
-                    ? "Отменить поиск"
-                    : mode === "online"
-                      ? "Новая игра"
-                      : "Найти соперника"}
+                  {isWaiting ? (
+                    "Отменить поиск"
+                  ) : mode === "online" ? (
+                    "Новая игра"
+                  ) : stake > 0 ? (
+                    <>
+                      Сесть за стол · {stake}
+                      <Berry size={13} />
+                    </>
+                  ) : (
+                    "Найти соперника"
+                  )}
                 </span>
                 {!isWaiting && <ArrowRight size={18} />}
               </button>
@@ -1423,94 +1908,33 @@ function App() {
                 <i />
                 {onlineAvailable === false
                   ? "Онлайн подключим позже. Сейчас — тренировка."
-                  : connected
-                    ? "Сервер готов. Можно играть."
-                    : "Тренируйся, пока подключаемся"}
+                  : !affordable
+                    ? `Для этой ставки нужно ${stake} ягодок.`
+                    : connected
+                      ? "Сервер готов. Можно играть."
+                      : "Тренируйся, пока подключаемся"}
               </div>
-              <div className="panel-separator">
-                <span>или играй со своими</span>
+              <button
+                className="friend-button bot-button"
+                disabled={busy || !affordable}
+                onClick={playBot}
+              >
+                <Bot size={17} />
+                Сыграть с ботом
+                <ArrowRight size={17} />
+              </button>
+              <div className="panel-separator labelled">
+                <span>кто ждёт соперника</span>
               </div>
+              {tableList}
+              <div className="panel-separator" />
               <button className="friend-button" onClick={openFriends}>
                 <Users size={17} />
                 Пригласить друга
                 <ArrowUpRight size={17} />
               </button>
-              <div className="fair-play">
-                <ShieldCheck size={20} />
-                <p>
-                  Без ставок и лишнего шума.
-                  <br />
-                  <strong>Только удовольствие от игры.</strong>
-                </p>
-              </div>
             </aside>
           </div>
-          <section className="next-section">
-            <div className="section-heading">
-              <h2>У каждого свой стиль игры</h2>
-              <span>
-                Найди свой <ArrowDownLeft size={15} />
-              </span>
-            </div>
-            <div className="feature-grid">
-              <button
-                className="feature-card training-card"
-                onClick={() => {
-                  if (mode !== "practice") setModal("leave");
-                  else {
-                    resetPractice();
-                    notify("Свежая расстановка готова. Попробуй новый удар!");
-                  }
-                }}
-              >
-                <div className="feature-icon">
-                  <Crosshair size={23} />
-                </div>
-                <span className="feature-content">
-                  <strong>Наедине со столом</strong>
-                  <span>Отточи удар. Почувствуй игру.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ТРЕНИРОВКА</span>
-              </button>
-              <button
-                className="feature-card friends-card"
-                onClick={openFriends}
-              >
-                <div className="feature-icon">
-                  <Users size={23} />
-                </div>
-                <span className="feature-content">
-                  <strong>Свои люди. Свой стол.</strong>
-                  <span>Пригласи друга — остальное готово.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ИГРА С ДРУГОМ</span>
-              </button>
-              <button
-                className="feature-card rules-card"
-                onClick={() => setModal("rules")}
-              >
-                <div className="feature-icon">
-                  <Sparkles size={22} />
-                </div>
-                <span className="feature-content">
-                  <strong>От первого удара</strong>
-                  <span>Всё, что нужно знать для начала.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ПРАВИЛА ЗА МИНУТУ</span>
-              </button>
-            </div>
-          </section>
-          <footer>
-            <span className="footer-brand">луза.</span>
-            <span>Хорошая компания. Точная игра.</span>
-            <span className="footer-right">
-              <span />
-              Создано для красивых партий
-            </span>
-          </footer>
         </main>
       </div>
       {overlays}

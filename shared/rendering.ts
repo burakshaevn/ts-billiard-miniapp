@@ -34,13 +34,26 @@ export function sampleSnapshots(
   }
   return snapshots[snapshots.length - 1].balls;
 }
-export type CueStroke = { startedAt: number; angle: number; power: number };
+export type CueStroke = {
+  startedAt: number;
+  angle: number;
+  power: number;
+};
+/** Backswing and thrust of the cue on the table, start to contact. */
 export const STROKE_MS = 210;
+/** Resting distance between tip and cue ball. */
+export const CUE_REST_GAP = 0.12;
+/** How far back the tip travels for a given power, in table units. */
+export function pullDistance(power: number) {
+  return 0.18 + Math.max(0, Math.min(1, power)) * 1;
+}
+/** Tip-to-ball distance, reaching exactly 0 at the moment of impact. */
 export function cueGap(stroke: CueStroke | null, now: number, power: number) {
-  if (!stroke) return 0.12;
+  if (!stroke) return CUE_REST_GAP;
   const t = Math.max(0, Math.min(1, (now - stroke.startedAt) / STROKE_MS));
-  const pullback = 0.18 + power * 0.65;
-  if (t < 0.6) return 0.12 + pullback * Math.sin(((t / 0.6) * Math.PI) / 2);
+  const pullback = pullDistance(stroke.power) - 0.07;
+  if (t < 0.6)
+    return CUE_REST_GAP + pullback * Math.sin(((t / 0.6) * Math.PI) / 2);
   const forward = (t - 0.6) / 0.4;
-  return (0.12 + pullback) * (1 - forward * forward);
+  return (CUE_REST_GAP + pullback) * (1 - forward * forward);
 }

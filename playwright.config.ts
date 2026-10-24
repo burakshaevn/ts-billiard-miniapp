@@ -24,5 +24,7 @@ export default defineConfig({
     url: "http://127.0.0.1:5173/api/health",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
+    // Berries of the test players must not pile up in the dev wallet file.
+    env: { WALLETS_FILE: "test-results/wallets.json" },
   },
 });

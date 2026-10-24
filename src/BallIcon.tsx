@@ -1,4 +1,4 @@
-import { BALL_COLORS } from "./Table";
+import { BALL_COLORS } from "./balls";
 
 export default function BallIcon({
   n = 8,

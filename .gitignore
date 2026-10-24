@@ -5,3 +5,5 @@ dist/
 .playwright/
 playwright-report/
 test-results/
+# Балансы игроков (локальная «база» сервера)
+server/.wallets.json

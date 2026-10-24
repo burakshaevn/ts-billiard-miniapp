@@ -2,7 +2,8 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="./logo-512.png" />
+    <link rel="apple-touch-icon" href="./logo-512.png" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
@@ -10,12 +11,30 @@
     <meta name="theme-color" content="#101715" />
     <meta
       name="description"
-      content="Твой бильярдный клуб. Играй в пул онлайн с друзьями или тренируйся за 3D-столом."
+      content="Amazing Pool — пул «восьмёрка» онлайн: случайный соперник, игра с другом по ссылке и свободная тренировка за 3D-столом."
     />
-    <title>Луза — бильярдный клуб</title>
+    <title>Amazing Pool — пул «восьмёрка» онлайн</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Белый экран — худший способ сообщить об ошибке. Если через 5 секунд
+      // приложение не смонтировалось (не та сборка на хостинге, старый WebView,
+      // заблокированный JS), пишем об этом словами.
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.childElementCount > 0) return;
+        root.innerHTML =
+          '<div style="margin:0 auto;max-width:34em;padding:14vh 24px;' +
+          'font:15px/1.6 system-ui,sans-serif;color:#cdd8c6;text-align:center">' +
+          '<h1 style="font-size:19px;margin:0 0 10px">Приложение не загрузилось</h1>' +
+          '<p style="margin:0 0 8px">Страница открылась, но код игры не запустился.</p>' +
+          '<p style="margin:0;color:#8e9c86">Частая причина: на хостинг выложены исходники репозитория, ' +
+          "а не собранная папка <code>dist</code> (на GitHub Pages источник должен быть GitHub Actions). " +
+          "Ещё варианты: очень старый браузер или отключённый JavaScript.</p></div>";
+        document.body.style.background = "#0d1210";
+      }, 5000);
+    </script>
   </body>
 </html>

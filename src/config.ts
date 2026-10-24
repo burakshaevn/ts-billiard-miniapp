@@ -120,6 +120,13 @@ export function inviteLink(code: string): string {
   return url.toString();
 }
 
+/**
+ * The Amazing Pool mark. `BASE_URL` keeps it working from the GitHub Pages
+ * subpath as well as from the dev server root.
+ */
+export const LOGO_URL = `${import.meta.env.BASE_URL}logo-160.png`;
+export const LOGO_LARGE_URL = `${import.meta.env.BASE_URL}logo-512.png`;
+
 export type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
@@ -147,17 +154,49 @@ export type TelegramWebApp = {
     offClick: (cb: () => void) => void;
   };
   HapticFeedback?: {
-    impactOccurred?: (style: "light" | "medium" | "heavy") => void;
+    impactOccurred?: (
+      style: "light" | "medium" | "heavy" | "rigid" | "soft",
+    ) => void;
   };
+  /** Native Stars payment sheet; status is paid | cancelled | failed | pending. */
+  openInvoice?: (url: string, callback?: (status: string) => void) => void;
   initDataUnsafe?: {
     start_param?: string;
-    user?: { first_name: string; last_name?: string };
+    user?: {
+      id?: number;
+      first_name: string;
+      last_name?: string;
+      photo_url?: string;
+    };
   };
 };
 
 declare global {
   interface Window {
     Telegram?: { WebApp?: TelegramWebApp };
+  }
+}
+
+const PLAYER_KEY = "amazing-pool-player";
+/**
+ * Who owns the wallet. Inside Telegram it is the account id, in a browser a
+ * random id kept in localStorage, so the berries of a guest survive a reload.
+ *
+ * This is an identifier, not proof: initData is not verified on the server
+ * yet, so a determined client can claim another key. Fine for berries bought
+ * with the welcome gift, not fine for anything of real value — see README.
+ */
+export function playerKey(): string {
+  const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  if (typeof id === "number" && Number.isSafeInteger(id)) return `tg:${id}`;
+  try {
+    const saved = localStorage.getItem(PLAYER_KEY);
+    if (saved) return saved;
+    const fresh = `guest:${crypto.randomUUID()}`;
+    localStorage.setItem(PLAYER_KEY, fresh);
+    return fresh;
+  } catch {
+    return `guest:${Math.random().toString(36).slice(2, 14)}`;
   }
 }
 

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createGame,
+  resultText,
   shoot,
   step,
   WIDTH,
@@ -218,4 +219,63 @@ test("a maximum-power shot cannot tunnel through an object ball", () => {
   for (let i = 0; i < 12; i++) step(g, 1 / 120);
   assert.equal(g.firstContact, 1);
   assert.ok(object.x > 0.2);
+});
+
+test("the result line is written for the player who reads it", () => {
+  const g = createGame();
+  g.winner = 0;
+  g.ending = "eight";
+  assert.equal(resultText(g, 0), "Восьмёрка в лузе. Партия твоя.");
+  assert.equal(resultText(g, 1), "Соперник закрыл партию восьмёркой.");
+  g.winner = 1;
+  assert.equal(resultText(g, 1), "Восьмёрка в лузе. Партия твоя.");
+  assert.equal(resultText(g, 0), "Соперник закрыл партию восьмёркой.");
+  // Whoever lost, the line must never congratulate them.
+  for (const ending of ["eight", "early-eight"] as const) {
+    g.ending = ending;
+    for (const winner of [0, 1]) {
+      g.winner = winner;
+      const loser = resultText(g, 1 - winner).toLowerCase();
+      assert.ok(
+        !loser.includes("победа") && !loser.includes("партия твоя"),
+        `the loser was told "${loser}"`,
+      );
+    }
+  }
+});
+
+test("an early eight reads as a loss for the player who potted it", () => {
+  const g = createGame();
+  g.ending = "early-eight";
+  g.winner = 1;
+  assert.equal(
+    resultText(g, 0),
+    "Восьмёрка забита раньше времени. Партия проиграна.",
+  );
+  assert.equal(resultText(g, 1), "Соперник забил восьмёрку раньше времени.");
+});
+
+test("a real eight ball finish is tagged and never congratulates the loser", () => {
+  const g = createGame();
+  g.groups = ["solids", "stripes"];
+  for (const b of g.balls) if (b.id !== 0 && b.id !== 8) b.pocketed = true;
+  g.turn = 0;
+  const eight = g.balls.find((b) => b.id === 8)!;
+  eight.x = 4.9;
+  eight.y = 2.4;
+  g.balls[0].x = 3.2;
+  g.balls[0].y = 1.2;
+  shoot(g, Math.atan2(eight.y - 1.2, eight.x - 3.2), 0.5);
+  for (let i = 0; i < 9000 && g.moving; i++) step(g, 1 / 120);
+  assert.equal(g.moving, false);
+  assert.notEqual(g.winner, null, "the eight ended the rack");
+  assert.ok(g.ending === "eight" || g.ending === "early-eight");
+  const loser = resultText(g, 1 - g.winner!).toLowerCase();
+  assert.ok(!loser.includes("победа"), `the loser was told "${loser}"`);
+  assert.ok(resultText(g, g.winner!).length > 0);
+});
+
+test("while the rack is alive the result line is just the game message", () => {
+  const g = createGame();
+  assert.equal(resultText(g, 0), g.message);
 });

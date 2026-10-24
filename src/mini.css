@@ -6,6 +6,31 @@ body.mini-mode {
   overscroll-behavior: none;
   background: #0d1210;
 }
+:root {
+  --frame-top: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
+  --frame-right: max(
+    env(safe-area-inset-right, 0px),
+    var(--app-safe-right, 0px)
+  );
+  --frame-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--app-safe-bottom, 0px)
+  );
+  --frame-left: max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+}
+/* Rotated by 90°: the device top edge is now this frame's left edge. */
+.is-rotated {
+  --frame-top: max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px));
+  --frame-right: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--app-safe-bottom, 0px)
+  );
+  --frame-bottom: max(
+    env(safe-area-inset-left, 0px),
+    var(--app-safe-left, 0px)
+  );
+  --frame-left: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
+}
 .mini-app {
   position: fixed;
   inset: 0;
@@ -16,10 +41,8 @@ body.mini-mode {
   touch-action: manipulation;
   background:
     radial-gradient(90% 60% at 50% 0%, #1b2a20 0%, transparent 70%), #0d1210;
-  padding: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px))
-    max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px))
-    max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom, 0px))
-    max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+  padding: var(--frame-top) var(--frame-right) var(--frame-bottom)
+    var(--frame-left);
 }
 .mini-bar {
   flex: 0 0 auto;
@@ -42,26 +65,6 @@ body.mini-mode {
 }
 .mini-icon-button:active {
   background: #222c23;
-}
-.mini-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.02em;
-  color: #eef1e9;
-}
-.mini-brand-ball {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, #39423c, #14191b 70%);
-  color: #f3f6ec;
-  font-size: 11px;
-  font-weight: 700;
 }
 .mini-online {
   margin-left: auto;
@@ -93,14 +96,15 @@ body.mini-mode {
   padding: 12px 20px 16px;
   text-align: center;
 }
-.mini-hero .ball-icon {
-  width: 52px;
-  height: 52px;
-  font-size: 17px;
+.mini-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 26px;
+  display: block;
 }
 .mini-hero h1 {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 800;
   letter-spacing: -0.03em;
 }
 .mini-hero p {
@@ -251,11 +255,75 @@ body.mini-mode {
 .mini-tabs button:active {
   background: #19211b;
 }
-/* Game screen */
+/* Game screen: the table owns the whole frame, chrome floats above it. */
+.mini-app-game {
+  padding: 0;
+  /* Neutral, almost black: nothing competes with the blue cloth. */
+  background: radial-gradient(
+    120% 90% at 50% 45%,
+    #171a20 0%,
+    #0e1014 45%,
+    #07080a 100%
+  );
+}
+/* A pool table is 2:1, so a portrait phone turns the whole screen sideways.
+   Pointer input is remapped to match (see isRotated in Table.tsx). */
+.mini-app-game.is-rotated {
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: var(--app-viewport-height, 100dvh);
+  height: 100vw;
+  transform-origin: 0 0;
+  transform: rotate(90deg) translateY(-100%);
+}
+.mini-app-game .mini-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Fingers drag the cue; never scroll or bounce the page instead. */
+  touch-action: none;
+}
+.mini-stage .table-canvas {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  height: 100%;
+}
+/* All game chrome sits along the bottom: Telegram floats its own menu and
+   close buttons over the top corner of the WebView, and in the rotated frame
+   that corner is exactly where a top bar would be. */
 .mini-app-game .mini-bar {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px calc(10px + var(--frame-right, 0px))
+    calc(8px + var(--frame-bottom, 0px)) calc(10px + var(--frame-left, 0px));
   min-height: 44px;
+  pointer-events: none;
+  background: linear-gradient(0deg, #07080ae6 15%, #07080a00);
+}
+.mini-app-game .mini-bar button {
+  pointer-events: auto;
+}
+.mini-app-game .mini-icon-button {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border-radius: 11px;
+  color: #e7ecf3;
+  background: #161920cc;
+  border-color: #2a2f3a;
+  backdrop-filter: blur(4px);
+}
+.mini-app-game .mini-icon-button[aria-pressed="true"] {
+  color: #10141a;
+  background: #e9eef6;
+  border-color: #e9eef6;
 }
 .mini-status {
   flex: 1;
@@ -272,7 +340,7 @@ body.mini-mode {
   color: #e3e9da;
 }
 .mini-status strong.is-turn {
-  color: var(--lime);
+  color: #7cc6f5;
 }
 .mini-status span {
   font-size: 10.5px;
@@ -282,49 +350,199 @@ body.mini-mode {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mini-pocketed {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  padding: 0 10px 4px;
-  min-height: 20px;
-}
-.mini-pocketed .ball-icon.small {
-  width: 17px;
-  height: 17px;
-  font-size: 8px;
-}
-.mini-stage {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.mini-stage .table-canvas {
+/* Scoreboard: who is at the table and which balls are left. It hangs in the
+   middle of the top edge — both top corners belong to Telegram's own chrome. */
+.mini-score {
   position: absolute;
-  inset: 0;
-  min-height: 0;
-  height: 100%;
-}
-.mini-hint {
-  position: absolute;
+  z-index: 2;
+  top: calc(5px + var(--frame-top, 0px));
   left: 50%;
-  bottom: 6px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  max-width: calc(100% - 150px);
+  pointer-events: none;
+}
+.mini-team {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  max-width: calc(100% - 24px);
-  padding: 5px 11px;
+  min-width: 0;
+  padding: 4px 9px;
   border-radius: 999px;
-  background: #0f1512cc;
-  border: 1px solid #263028;
-  color: #b9c7ad;
-  font-size: 10.5px;
-  white-space: nowrap;
+  background: #0b0d12a8;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.mini-team.is-active {
+  background: #142033cc;
+  box-shadow: inset 0 0 0 1px #4b90d4;
+}
+.mini-team-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e3e9f1;
+  max-width: 62px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Telegram photos of both players: who is playing whom, right over the table. */
+.mini-avatar {
+  --avatar-size: 23px;
+  font-size: 10px;
+  border-width: 1px;
+  border-radius: 7px;
+}
+.mini-balls {
+  display: flex;
+  gap: 3px;
+}
+/* The 8 belongs to both players, so online it sits on its own between them. */
+.mini-score > .mini-balls {
+  padding: 4px;
+  border-radius: 999px;
+  background: #0b0d12a8;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+/* Real balls, not abstract dots: same colours and numbers as on the cloth. */
+.mini-ball {
+  position: relative;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ball, #5a6672);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.mini-ball.is-striped {
+  background: linear-gradient(
+    180deg,
+    #f1ede1 0 23%,
+    var(--ball) 23% 77%,
+    #f1ede1 77%
+  );
+}
+.mini-ball b {
+  display: grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #f4f1e8;
+  color: #1b1f22;
+  font:
+    700 8px/1 Arial,
+    Helvetica,
+    sans-serif;
+}
+/* Potted: the slot stays so the two sides keep lining up. */
+.mini-ball.is-gone {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px #ffffff2e;
+}
+.mini-ball.is-unknown {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px #ffffff2e;
+  opacity: 0.75;
+}
+/* Messages float over the table inside the rotated frame, so they read the
+   right way up and never sit on top of the cue. */
+.mini-toast {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(50px + var(--frame-bottom, 0px));
+  transform: translateX(-50%);
+  max-width: min(76%, 430px);
+  padding: 8px 13px;
+  border-radius: 11px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-align: center;
+  color: #e7ecf3;
+  background: #10141bdb;
+  box-shadow: inset 0 0 0 1px #ffffff1f;
   pointer-events: none;
+}
+/* The cue the player actually handles, drawn beside the table. */
+.mini-cue {
+  position: absolute;
+  z-index: 2;
+  right: calc(6px + var(--frame-right, 0px));
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 62px;
+  padding: 8px 0 10px;
+  border-radius: 18px;
+  background: #0b0d12a6;
+  border: 1px solid #242935;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mini-cue.is-pulled {
+  cursor: grabbing;
+  background: #0b0d12d9;
+  border-color: #3f5570;
+}
+.mini-cue.is-off {
+  opacity: 0.35;
+}
+.mini-cue-rail {
+  position: relative;
+  width: 26px;
+  height: 184px;
+  overflow: hidden;
+}
+.mini-cue-stick {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  will-change: transform;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mini-cue.is-pulled .mini-cue-stick {
+  transition: none;
+}
+.mini-cue-tip {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px 2px 0 0;
+  background: #f1f3f0;
+}
+.mini-cue-shaft {
+  width: 9px;
+  flex: 1;
+  background: linear-gradient(90deg, #b57f44, #f0c388 45%, #a9743c);
+}
+.mini-cue-butt {
+  width: 13px;
+  height: 64px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #a2541a, #ef9340 45%, #934914);
+}
+.mini-cue-power {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 14px;
+  line-height: 1.1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9fd4ff;
+  font-variant-numeric: tabular-nums;
 }
 .mini-overlay {
   position: absolute;
@@ -336,7 +554,7 @@ body.mini-mode {
   gap: 10px;
   padding: 20px;
   text-align: center;
-  background: #0b100ecc;
+  background: #080a0dd1;
   backdrop-filter: blur(3px);
   z-index: 3;
 }
@@ -346,7 +564,7 @@ body.mini-mode {
 }
 .mini-overlay p {
   font-size: 12.5px;
-  color: #b3c0a8;
+  color: #aab4c2;
   max-width: 280px;
   line-height: 1.5;
 }
@@ -354,8 +572,19 @@ body.mini-mode {
 .mini-overlay .winner-icon {
   color: var(--lime);
 }
-.mini-primary,
-.mini-hit {
+.mini-app-game .mini-overlay .spin,
+.mini-app-game .mini-overlay .winner-icon {
+  color: #7cc6f5;
+}
+.mini-app-game .mini-primary {
+  color: #06131d;
+  background: linear-gradient(180deg, #9ad6fb, #5aa8e0);
+}
+.mini-app-game .mini-text-button {
+  margin-top: 6px;
+  color: #93a0b2;
+}
+.mini-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -366,89 +595,6 @@ body.mini-mode {
   font-weight: 600;
   color: #16200f;
   background: linear-gradient(180deg, #d9f294, #b2d06c);
-}
-.mini-controls {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid #222a23;
-  background: #111714;
-}
-.mini-power {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.mini-power label {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
-  color: #9fae93;
-}
-.mini-power label span {
-  color: var(--lime);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.mini-power input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 22px;
-  background: none;
-}
-.mini-power input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--lime) var(--progress, 50%),
-    #27302a var(--progress, 50%)
-  );
-}
-.mini-power input[type="range"]::-moz-range-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--lime) var(--progress, 50%),
-    #27302a var(--progress, 50%)
-  );
-}
-.mini-power input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  margin-top: -8px;
-  border-radius: 50%;
-  background: #f2f7e6;
-  border: 3px solid #7f9b53;
-}
-.mini-power input[type="range"]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #f2f7e6;
-  border: 3px solid #7f9b53;
-}
-.mini-hit {
-  flex: 0 0 auto;
-  min-width: 112px;
-  min-height: 52px;
-  font-size: 15px;
-}
-.mini-hit:disabled {
-  background: #232b24;
-  color: #7e8a78;
 }
 /* Short screens: keep everything on one page without scrolling. */
 @media (max-height: 640px) {
@@ -479,37 +625,81 @@ body.mini-mode {
     margin-right: auto;
   }
 }
-/* Landscape phone: trim the chrome so the table still owns the screen. */
+/* Short frame (phone held sideways): trim the floating chrome even further. */
 @media (max-height: 460px) {
   .mini-app-game .mini-bar {
-    padding: 4px 8px;
-    min-height: 36px;
+    min-height: 38px;
   }
   .mini-app-game .mini-icon-button {
-    width: 32px;
-    height: 32px;
-    flex-basis: 32px;
-    border-radius: 9px;
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
   }
-  .mini-pocketed {
+  .mini-cue {
+    width: 54px;
+  }
+  .mini-cue-rail {
+    height: 150px;
+  }
+  .mini-cue-butt {
+    height: 52px;
+  }
+  .mini-status span {
     display: none;
   }
-  .mini-controls {
-    padding: 6px 10px 8px;
-    gap: 10px;
-  }
-  .mini-hit {
-    min-height: 42px;
-    min-width: 96px;
-    font-size: 14px;
-  }
-  .mini-power label {
-    font-size: 10px;
-  }
-  .mini-power input[type="range"] {
-    height: 18px;
-  }
-  .mini-hint {
-    display: none;
-  }
+}
+/* Ягодки в мини-приложении: баланс в шапке лобби, ставка и выигрыш на столе. */
+.mini-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #39462f;
+  background: #d2ed890a;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #d7e4c2;
+}
+.mini-balance svg {
+  color: var(--lime);
+}
+.mini-balance strong {
+  font-weight: 700;
+  color: var(--lime);
+}
+.mini-stake {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--lime);
+}
+.mini-stake-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.mini-stake-note b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--lime);
+}
+.mini-payout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lime);
+}
+/* Waiting at a table: play a bot now, or cancel. */
+.mini-wait-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
