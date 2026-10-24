@@ -37,7 +37,8 @@ export type MiniProps = {
   myIndex: number;
   code: string;
   connected: boolean;
-  onlineAvailable: boolean;
+  /** null while the server address is being resolved, false = practice-only build. */
+  onlineAvailable: boolean | null;
   population: number;
   power: number;
   setPower: (power: number) => void;
@@ -64,6 +65,8 @@ export type MiniProps = {
 
 export default function MiniApp(p: MiniProps) {
   const g = p.game;
+  // Online is a placeholder until a game server is connected to the build.
+  const soon = p.onlineAvailable === false;
   const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
   const myTurn = p.mode === "practice" || (p.canAim && !p.isWaiting);
   const group =
@@ -229,8 +232,8 @@ export default function MiniApp(p: MiniProps) {
         </span>
         <span className={`mini-online ${p.connected ? "live" : ""}`}>
           <i />
-          {!p.onlineAvailable
-            ? "Только тренировка"
+          {soon
+            ? "Онлайн позже"
             : p.connected
               ? `${p.population} в клубе`
               : "Подключаемся…"}
@@ -274,30 +277,40 @@ export default function MiniApp(p: MiniProps) {
       ) : (
         <div className="mini-menu">
           <button
-            className="mini-choice primary"
+            className={`mini-choice ${soon ? "muted" : "primary"}`}
             onClick={p.onFindOpponent}
-            disabled={!p.onlineAvailable || p.busy}
+            disabled={p.busy}
           >
             <Gamepad2 size={22} />
             <span>
               <strong>Играть онлайн</strong>
               <small>Случайный соперник</small>
             </span>
-            <ArrowRight size={18} />
+            {soon ? (
+              <em className="mini-soon">скоро</em>
+            ) : (
+              <ArrowRight size={18} />
+            )}
           </button>
           <button
-            className="mini-choice"
+            className={`mini-choice ${soon ? "muted" : ""}`}
             onClick={p.onFriends}
-            disabled={!p.onlineAvailable}
           >
             <Users size={22} />
             <span>
               <strong>Играть с другом</strong>
               <small>Комната по коду или ссылке</small>
             </span>
-            <ArrowRight size={18} />
+            {soon ? (
+              <em className="mini-soon">скоро</em>
+            ) : (
+              <ArrowRight size={18} />
+            )}
           </button>
-          <button className="mini-choice" onClick={p.onPractice}>
+          <button
+            className={`mini-choice ${soon ? "primary" : ""}`}
+            onClick={p.onPractice}
+          >
             <Crosshair size={22} />
             <span>
               <strong>Тренировка</strong>
@@ -305,9 +318,10 @@ export default function MiniApp(p: MiniProps) {
             </span>
             <ArrowRight size={18} />
           </button>
-          {!p.onlineAvailable && (
+          {soon && (
             <p className="mini-note">
-              Онлайн-сервер не подключён к этой сборке — доступна тренировка.
+              Тренировка работает полностью. Онлайн включится, когда к сборке
+              добавят адрес игрового сервера.
             </p>
           )}
         </div>

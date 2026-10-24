@@ -33,10 +33,9 @@ import Table from "./Table";
 import BallIcon from "./BallIcon";
 import MiniApp from "./MiniApp";
 import {
-  ONLINE_AVAILABLE,
-  gameSocketUrl,
   inviteLink,
   isTelegramClient,
+  resolveGameServer,
   startRoomCode,
 } from "./config";
 import {
@@ -82,6 +81,8 @@ function App() {
   const strokeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [power, setPower] = useState(0.65),
     [sound, setSound] = useState(() => load("luza-sound", true));
+  // null = still resolving the server address, false = practice-only build.
+  const [onlineAvailable, setOnlineAvailable] = useState<boolean | null>(null);
   const [connected, setConnected] = useState(false),
     [population, setPopulation] = useState(0),
     [players, setPlayers] = useState<Player[]>([]),
@@ -128,6 +129,15 @@ function App() {
   const isWaiting =
     mode === "searching" || (mode === "online" && players.length === 1);
   const notify = (message: string) => setToast(message);
+  function haptic(kind: "shot" | "pocket") {
+    try {
+      window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(
+        kind === "shot" ? "medium" : "light",
+      );
+    } catch {
+      /* Haptics are optional. */
+    }
+  }
   function audio(kind: "shot" | "pocket") {
     if (!soundRef.current) return;
     try {
@@ -206,11 +216,20 @@ function App() {
     resetPractice(true);
     setModal(null);
   }
+  /** Online is a placeholder until a game server address is configured. */
+  function requireServer() {
+    if (onlineAvailable === false) {
+      notify("Онлайн подключим позже — сейчас работает тренировка.");
+      return false;
+    }
+    return true;
+  }
+  function openFriends() {
+    if (!requireServer()) return;
+    setModal("friends");
+  }
   function startSearch() {
-    if (!ONLINE_AVAILABLE)
-      return notify(
-        "В этой сборке не задан адрес игрового сервера — доступна тренировка.",
-      );
+    if (!requireServer()) return;
     if (!connected)
       return notify(
         "Подключаемся к серверу. Попробуй ещё раз через пару секунд.",
@@ -248,6 +267,7 @@ function App() {
         return;
       }
       audio("shot");
+      haptic("shot");
       if (mode === "online") {
         send({ type: "shoot", angle: stroke.angle, power: stroke.power });
         // Hold at contact until the authoritative server acknowledges the impulse.
@@ -321,11 +341,9 @@ function App() {
   }, [modal, expanded]);
 
   useEffect(() => {
-    const address = gameSocketUrl();
-    if (!address) return;
     let alive = true,
       retry: ReturnType<typeof setTimeout>;
-    const connect = () => {
+    const connect = (address: string) => {
       const ws = new WebSocket(address);
       socket.current = ws;
       ws.onopen = () => {
@@ -400,11 +418,15 @@ function App() {
           resetPractice(true);
           notify("Связь прервалась. Матч завершён, доступна тренировка.");
         }
-        retry = setTimeout(connect, 2500);
+        retry = setTimeout(() => connect(address), 2500);
       };
       ws.onerror = () => ws.close();
     };
-    connect();
+    void resolveGameServer().then((address) => {
+      if (!alive) return;
+      setOnlineAvailable(address !== null);
+      if (address) connect(address);
+    });
     return () => {
       alive = false;
       clearTimeout(retry);
@@ -524,7 +546,9 @@ function App() {
       acc = 0,
       ui = 0;
     const run = (now: number) => {
-      const elapsed = Math.min((now - last) / 1000, 0.1);
+      // Catch up to 0.25 s per frame: on a slow device the table must not
+      // drift into slow motion, it should still run in real time.
+      const elapsed = Math.min((now - last) / 1000, 0.25);
       last = now;
       const game = gameRef.current;
       if (modeRef.current === "practice" && game.moving) {
@@ -534,7 +558,10 @@ function App() {
           step(game, 1 / 120);
           acc -= 1 / 120;
         }
-        if (game.shotPocketed.length > pockets) audio("pocket");
+        if (game.shotPocketed.length > pockets) {
+          audio("pocket");
+          haptic("pocket");
+        }
         ui += elapsed;
         if (ui > 0.075 || !game.moving) {
           setTick((t) => t + 1);
@@ -909,7 +936,7 @@ function App() {
           myIndex={myIndex}
           code={code}
           connected={connected}
-          onlineAvailable={ONLINE_AVAILABLE}
+          onlineAvailable={onlineAvailable}
           population={population}
           power={power}
           setPower={setPower}
@@ -923,7 +950,7 @@ function App() {
           onHit={hit}
           onPractice={startPractice}
           onFindOpponent={startSearch}
-          onFriends={() => setModal("friends")}
+          onFriends={openFriends}
           onRules={() => setModal("rules")}
           onHistory={() => setModal("history")}
           onProfile={() => {
@@ -997,7 +1024,7 @@ function App() {
             Свой стол для тебя
             <br />и твоих друзей.
           </p>
-          <button onClick={() => setModal("friends")}>
+          <button onClick={openFriends}>
             Пригласить друга <ArrowUpRight size={15} />
           </button>
         </div>
@@ -1384,17 +1411,16 @@ function App() {
               </button>
               <div className="match-note">
                 <i />
-                {connected
-                  ? "Сервер готов. Можно играть."
-                  : "Тренируйся, пока подключаемся"}
+                {onlineAvailable === false
+                  ? "Онлайн подключим позже. Сейчас — тренировка."
+                  : connected
+                    ? "Сервер готов. Можно играть."
+                    : "Тренируйся, пока подключаемся"}
               </div>
               <div className="panel-separator">
                 <span>или играй со своими</span>
               </div>
-              <button
-                className="friend-button"
-                onClick={() => setModal("friends")}
-              >
+              <button className="friend-button" onClick={openFriends}>
                 <Users size={17} />
                 Пригласить друга
                 <ArrowUpRight size={17} />
@@ -1439,7 +1465,7 @@ function App() {
               </button>
               <button
                 className="feature-card friends-card"
-                onClick={() => setModal("friends")}
+                onClick={openFriends}
               >
                 <div className="feature-icon">
                   <Users size={23} />

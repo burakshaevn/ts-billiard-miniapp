@@ -12,12 +12,14 @@ export { WIDTH, HEIGHT, RADIUS, POCKETS, UNITS_PER_METRE } from "./table";
 export const PHYSICS = {
   gravity: 9.81 * UNITS_PER_METRE,
   slidingFriction: 0.2,
-  rollingFriction: 0.018,
+  // Slightly above a fast tournament cloth (~0.01-0.02): keeps the shot
+  // realistic but lets a rack settle in seconds instead of half a minute.
+  rollingFriction: 0.032,
   ballRestitution: 0.96,
   cushionRestitution: 0.8,
   maxShotSpeedMps: 5.5,
   minShotSpeedMps: 0.15,
-  stopSpeed: 0.004 * UNITS_PER_METRE,
+  stopSpeed: 0.018 * UNITS_PER_METRE,
 } as const;
 // The slider controls an initial impulse, NOT a force applied each frame.
 // This response curve gives more precision for soft positional shots.

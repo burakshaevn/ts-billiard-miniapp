@@ -159,6 +159,22 @@ body.mini-mode {
 .mini-choice:active {
   transform: translateY(1px);
 }
+.mini-choice.muted {
+  opacity: 0.72;
+}
+.mini-soon {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #3c4a36;
+  background: #1c241d;
+  color: #93a585;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .mini-note {
   font-size: 11px;
   line-height: 1.45;
