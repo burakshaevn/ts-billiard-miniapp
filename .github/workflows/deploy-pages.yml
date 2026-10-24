@@ -2,7 +2,9 @@ name: Deploy Mini App to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # Рабочие ветки тоже публикуются: сайт Pages у репозитория один,
+    # поэтому последний запуск (из main или из ветки) и есть то, что онлайн.
+    branches: [main, "arena/**"]
   workflow_dispatch:
 
 permissions:

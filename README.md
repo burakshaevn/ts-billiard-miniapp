@@ -168,6 +168,19 @@ npm ci && npm run build && PORT=8080 npm start
 
 ### 4. Бот
 
+### Деплой из рабочей ветки, без слияния в main
+
+Сайт Pages у репозитория **один**: что задеплоили последним — то и открывается по адресу. Поэтому ветку можно публиковать, смотреть на телефоне и только потом сливать в main.
+
+1. Один раз разреши ветке деплоить: **Settings → Environments → github-pages → Deployment branches and tags → Add deployment branch or tag rule** → `arena/*` (по умолчанию в списке только `main`, и запуск из ветки падает с `Branch is not allowed to deploy to github-pages due to environment protection rules`).
+2. Запусти деплой из ветки:
+   - **Actions → Deploy Mini App to GitHub Pages → Run workflow → Branch: своя ветка**, или
+   - `gh workflow run deploy-pages.yml --ref <ветка>`, или
+   - просто запушь в ветку `arena/**` — такой push уже публикует сайт сам.
+3. Откатить = запустить тот же workflow с веткой `main`.
+
+Адрес в BotFather при этом не меняется: он один и тот же для любой ветки.
+
 1. BotFather → `/newapp` (или Menu Button) → укажи адрес Pages.
 2. Открой Mini App с телефона и проверь: запуск, поворот экрана в горизонтальный, оттягивание кия пальцем, выход кнопкой «Назад».
 3. Приглашение друга даёт ссылку `?startapp=КОД`, если задан `VITE_BOT_APP_URL`.
