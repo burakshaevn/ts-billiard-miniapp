@@ -2127,3 +2127,26 @@ input::placeholder {
   text-transform: uppercase;
   color: #788667;
 }
+/* Bots: a machine face instead of an initial, and a quiet tag by the name. */
+.avatar.is-bot {
+  color: #cfe0a8;
+  background: linear-gradient(140deg, #3f4b36, #232b20);
+  border-color: #5d7049aa;
+}
+.bot-tag {
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #93a383;
+  border: 1px solid #3c4733;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.bot-button {
+  margin-top: 9px;
+}
+.bot-button svg:last-child {
+  margin-left: auto;
+}

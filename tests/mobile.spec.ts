@@ -100,6 +100,31 @@ test("mini app on a phone: menu, practice table, online match", async ({
   expect(errors).toEqual([]);
 });
 
+test("a bot takes the empty seat, so there is always someone to play", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // Its own wallet, so the berries of the other tests are not involved.
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "amazing-pool-player",
+      "guest:" + crypto.randomUUID().slice(0, 18),
+    ),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: /Играть онлайн/ }).click();
+  await page.getByRole("button", { name: /Сыграть с ботом/ }).click();
+  // Straight to the table: no waiting, no empty lobby.
+  await expect(page.locator(".mini-stage canvas")).toBeVisible();
+  // The opponent is openly a bot: machine face over the table, real name.
+  await expect(page.locator(".mini-score .avatar.is-bot")).toHaveCount(1);
+  const opponent = page.locator(".mini-team-name").nth(1);
+  await expect(opponent).not.toBeEmpty();
+  await expect(page.getByText("Твой ход")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("practice-only build: no server, no failed connections, balls come to rest", async ({
   page,
 }) => {
@@ -114,6 +139,15 @@ test("practice-only build: no server, no failed connections, balls come to rest"
   await page.getByRole("button", { name: /Играть онлайн/ }).click();
   await expect(
     page.getByText("Онлайн подключим позже — сейчас работает тренировка."),
+  ).toBeVisible();
+  // Without a server there is still a game: the bot match runs in the browser.
+  await page.getByRole("button", { name: /Игра с ботом/ }).click();
+  await expect(page.locator(".mini-stage canvas")).toBeVisible();
+  await expect(page.locator(".mini-score .avatar.is-bot")).toHaveCount(1);
+  await expect(page.getByText("Твой ход")).toBeVisible();
+  await page.getByRole("button", { name: "Назад в меню" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Amazing Pool" }),
   ).toBeVisible();
 
   await page.getByRole("button", { name: /Тренировка/ }).click();

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
+  Bot,
   Check,
   ChevronDown,
   ChevronRight,
@@ -56,8 +57,9 @@ import {
   type Game,
 } from "../shared/game";
 import { STROKE_MS, type CueStroke } from "../shared/rendering";
+import { BOT_NAMES, BOT_SKILL, planShot } from "../shared/bot";
 
-type Player = { id: string; name: string; avatar?: string };
+type Player = { id: string; name: string; avatar?: string; bot?: boolean };
 type Match = { date: string; result: string; shots: number; opponent: string };
 /** A table in the lobby list: someone is sitting there, waiting for a rival. */
 export type OpenTable = {
@@ -104,7 +106,9 @@ function save(key: string, value: unknown) {
 function App() {
   const [name, setName] = useState(() => load("luza-name", "Гость"));
   const [draftName, setDraftName] = useState(name);
-  const [mode, setMode] = useState<"practice" | "searching" | "online">(
+  // "bot" is a full match against the computer, played in this browser: it
+  // is what makes the game playable with no game server at all.
+  const [mode, setMode] = useState<"practice" | "searching" | "online" | "bot">(
     "practice",
   );
   const [page, setPage] = useState("play"),
@@ -178,6 +182,7 @@ function App() {
     currentRoomRef = useRef(""),
     roomSizeRef = useRef(0),
     audioRef = useRef<AudioContext | null>(null),
+    botTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     soundRef = useRef(sound);
   modeRef.current = mode;
   nameRef.current = name;
@@ -185,6 +190,7 @@ function App() {
   const g = gameRef.current;
   const canAim =
     mode === "practice" ||
+    (mode === "bot" && g.turn === myIndex) ||
     (mode === "online" && players.length === 2 && g.turn === myIndex);
   const isWaiting =
     mode === "searching" || (mode === "online" && players.length === 1);
@@ -229,14 +235,59 @@ function App() {
     notify("Нет связи с сервером. Тренировка доступна офлайн.");
     return false;
   };
+  /** Stop a bot shot that has been scheduled but not played yet. */
+  function cancelBot() {
+    if (botTimer.current !== null) clearTimeout(botTimer.current);
+    botTimer.current = null;
+  }
+  /**
+   * The computer opponent of a local match. It uses the same planner as the
+   * server bot and the same `shoot()` as the player — it simply gets its
+   * turn here instead of over the wire.
+   */
+  function botTurn() {
+    const game = gameRef.current;
+    if (modeRef.current !== "bot" || game.moving || game.winner !== null)
+      return;
+    const plan = planShot(game, 1, BOT_SKILL);
+    if (!plan) return;
+    audio("shot");
+    shoot(game, plan.angle, plan.power);
+    setTick((t) => t + 1);
+  }
+  /** A whole rack against the computer, with no server involved. */
+  function startBotMatch() {
+    cancelStroke();
+    cancelBot();
+    closeCurrentRoom();
+    gameRef.current = createGame();
+    angleRef.current = -0.24;
+    setMode("bot");
+    setMyIndex(0);
+    setPlayers([
+      { id: "me", name: nameRef.current, avatar: avatarRef.current },
+      {
+        id: "bot",
+        name: BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
+        bot: true,
+      },
+    ]);
+    setCode("");
+    setRematch("none");
+    setResetKey((k) => k + 1);
+    savedWinner.current = false;
+    setBusy(false);
+    setModal(null);
+    setScreen("game");
+    setTick((t) => t + 1);
+  }
   function cancelStroke() {
     if (strokeTimer.current !== null) clearTimeout(strokeTimer.current);
     strokeRef.current = null;
     setPreparing(false);
   }
-  function resetPractice(backToLobby = false) {
-    cancelStroke();
-    if (backToLobby) setScreen("lobby");
+  /** Forget the online room we were in, so its late updates are ignored. */
+  function closeCurrentRoom() {
     if (currentRoomRef.current)
       closedRoomsRef.current.add(currentRoomRef.current);
     if (closedRoomsRef.current.size > 100)
@@ -245,6 +296,12 @@ function App() {
       );
     currentRoomRef.current = "";
     roomSizeRef.current = 0;
+  }
+  function resetPractice(backToLobby = false) {
+    cancelStroke();
+    cancelBot();
+    if (backToLobby) setScreen("lobby");
+    closeCurrentRoom();
     gameRef.current = createGame(true);
     angleRef.current = -0.24;
     setRematch("none");
@@ -264,14 +321,21 @@ function App() {
       gameRef.current.winner === null
     )
       return setModal("leave");
-    if (modeRef.current === "practice") {
+    if (modeRef.current === "practice" || modeRef.current === "bot") {
       cancelStroke();
-      setScreen("lobby");
+      cancelBot();
+      if (modeRef.current === "bot") resetPractice(true);
+      else setScreen("lobby");
       return;
     }
     exitToPractice();
   }
   function startPractice() {
+    if (mode === "bot") {
+      resetPractice();
+      setScreen("game");
+      return;
+    }
     if (mode !== "practice") return setModal("leave");
     resetPractice();
     setScreen("game");
@@ -323,6 +387,7 @@ function App() {
   /** Quick game: the oldest open table with this stake, or a new one of mine. */
   function startSearch() {
     if (!readyToPlay()) return;
+    cancelBot();
     if (!affordable) {
       notify(`Не хватает ягодок: нужно ${stake}, а у тебя ${balance}.`);
       return;
@@ -336,6 +401,7 @@ function App() {
   /** Sit down at a table someone is already waiting at. */
   function sitAt(table: OpenTable) {
     if (!readyToPlay()) return;
+    cancelBot();
     if (balance !== null && !canAfford(balance, table.stake)) {
       notify(`Не хватает ягодок: за этот стол нужно ${table.stake}.`);
       return;
@@ -344,6 +410,29 @@ function App() {
     setBusy(true);
     setModal(null);
     send({ type: "join", code: table.code });
+  }
+  /**
+   * Play a computer opponent right now. With a game server the bot sits at
+   * a real table and the stake is real; without one the whole match runs
+   * here in the browser, which is what keeps the game playable on a static
+   * deployment.
+   */
+  function playBot() {
+    if (onlineAvailable === false || !connected) {
+      startBotMatch();
+      return;
+    }
+    if (mode === "online") return setModal("leave");
+    if (!affordable) {
+      notify(`Не хватает ягодок: нужно ${stake}, а у тебя ${balance}.`);
+      return;
+    }
+    cancelStroke();
+    cancelBot();
+    setBusy(true);
+    setModal(null);
+    send({ type: "bot", stake: stakeRef.current });
+    setSearchSeconds(0);
   }
   /** Buy berries for Telegram Stars. */
   function buyBerries(packId: string) {
@@ -747,7 +836,8 @@ function App() {
       const elapsed = Math.min((now - last) / 1000, 0.25);
       last = now;
       const game = gameRef.current;
-      if (modeRef.current === "practice" && game.moving) {
+      const local = modeRef.current === "practice" || modeRef.current === "bot";
+      if (local && game.moving) {
         acc += elapsed;
         const pockets = game.shotPocketed.length;
         while (acc >= 1 / 120) {
@@ -763,6 +853,22 @@ function App() {
           setTick((t) => t + 1);
           ui = 0;
         }
+        // The balls have just stopped and the table belongs to the bot:
+        // give it a moment to "think", the way the server bot does.
+        if (
+          !game.moving &&
+          modeRef.current === "bot" &&
+          game.winner === null &&
+          game.turn === 1 &&
+          botTimer.current === null
+        )
+          botTimer.current = setTimeout(
+            () => {
+              botTimer.current = null;
+              botTurn();
+            },
+            900 + Math.random() * 700,
+          );
       } else acc = 0;
       frame = requestAnimationFrame(run);
     };
@@ -796,7 +902,9 @@ function App() {
       opponent:
         mode === "practice"
           ? "Тренировка"
-          : players[1 - myIndex]?.name || "Соперник",
+          : `${players[1 - myIndex]?.name || "Соперник"}${
+              players[1 - myIndex]?.bot ? " (бот)" : ""
+            }`,
     };
     setRecords((prev) => {
       const next = [record, ...prev].slice(0, 30);
@@ -1209,6 +1317,15 @@ function App() {
                     "Открыть свой стол"
                   )}
                 </button>
+                <button
+                  className="friend-button bot-button"
+                  disabled={busy || !affordable}
+                  onClick={playBot}
+                >
+                  <Bot size={17} />
+                  Сыграть с ботом
+                  <ArrowRight size={17} />
+                </button>
                 <p className="subtle-text">
                   {balance === null
                     ? "Баланс подгружается…"
@@ -1340,6 +1457,7 @@ function App() {
           openTables={tables.length}
           onPractice={startPractice}
           onFindOpponent={openTables}
+          onPlayBot={playBot}
           onWallet={openWallet}
           onFriends={openFriends}
           onRules={() => setModal("rules")}
@@ -1453,7 +1571,7 @@ function App() {
                 ? `${population} ${plural(population, "игрок", "игрока", "игроков")} онлайн`
                 : "Офлайн-тренировка"}
             </span>
-            {balanceChip("balance-chip")}
+            {onlineAvailable !== false && balanceChip("balance-chip")}
             <span className="top-divider" />
             <button
               className="icon-button sound-top"
@@ -1497,8 +1615,12 @@ function App() {
                         <Avatar
                           name={players[1 - myIndex]?.name || "Соперник"}
                           src={players[1 - myIndex]?.avatar}
+                          bot={players[1 - myIndex]?.bot}
                         />
                         <b>{players[1 - myIndex]?.name || "Соперник"}</b>
+                        {players[1 - myIndex]?.bot && (
+                          <em className="bot-tag">бот</em>
+                        )}
                       </span>
                     </>
                   )}
@@ -1770,6 +1892,15 @@ function App() {
                       ? "Сервер готов. Можно играть."
                       : "Тренируйся, пока подключаемся"}
               </div>
+              <button
+                className="friend-button bot-button"
+                disabled={busy || !affordable}
+                onClick={playBot}
+              >
+                <Bot size={17} />
+                Сыграть с ботом
+                <ArrowRight size={17} />
+              </button>
               <div className="panel-separator labelled">
                 <span>кто ждёт соперника</span>
               </div>

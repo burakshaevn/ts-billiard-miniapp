@@ -696,3 +696,9 @@ body.mini-mode {
   font-weight: 700;
   color: var(--lime);
 }
+/* Waiting at a table: play a bot now, or cancel. */
+.mini-wait-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}

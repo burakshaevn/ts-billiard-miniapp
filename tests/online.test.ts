@@ -19,7 +19,13 @@ before(async () => {
     JSON.stringify({ wallets: { [POOR]: 5 }, charges: [] }),
   );
   server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    env: { ...process.env, PORT: String(PORT), WALLETS_FILE: walletFile },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      WALLETS_FILE: walletFile,
+      // A lonely table waits three seconds for a human here, not twenty.
+      BOT_WAIT_MS: "3000",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise<void>((resolve, reject) => {
@@ -309,4 +315,59 @@ test("berries can only be bought when the server has a bot token", async () => {
     "nothing is credited without a payment",
   );
   buyer.ws.close();
+});
+
+test("a bot sits down on request, plays its own turns and pays like anyone", async () => {
+  const player = await peer("Человек", "guest:humanbot1");
+  await player.wait((m) => m.type === "wallet" && m.balance === 150);
+  player.send({ type: "bot", stake: 10 });
+  const seated = await player.wait(
+    (m) => m.type === "state" && m.players.length === 2,
+  );
+  const bot = seated.players[1 - seated.yourIndex];
+  assert.equal(bot.bot, true, "the opponent is marked as a bot");
+  assert.ok(bot.name.length > 1, "and it has a name of its own");
+  assert.equal(seated.stake, 10);
+  assert.equal(seated.pot, 20, "the house puts the same stake in");
+  const charged = await player.wait(
+    (m) => m.type === "wallet" && m.balance === 140,
+  );
+  assert.equal(charged.balance, 140);
+  // The bot takes its turn by itself, without anything from the client.
+  if (seated.game.turn !== seated.yourIndex) {
+    const shot = await player.wait(
+      (m) => m.type === "state" && m.game.shots === 1 && m.game.moving,
+      8000,
+    );
+    assert.ok(shot.game.balls.some((b: any) => b.vx !== 0 || b.vy !== 0));
+  } else {
+    await pause();
+    player.send({ type: "shoot", angle: 0.05, power: 0.75 });
+    // After our shot the table belongs to the bot, which answers on its own.
+    const answer = await player.wait(
+      (m) => m.type === "state" && m.game.shots === 2,
+      20000,
+    );
+    assert.equal(answer.game.shots, 2, "the bot answered without a client");
+  }
+  player.send({ type: "leave" });
+  await player.wait((m) => m.type === "left");
+  player.ws.close();
+});
+
+test("a table nobody joins gets a bot instead of an empty room", async () => {
+  const lonely = await peer("Одинокий", "guest:lonely111");
+  lonely.send({ type: "queue", stake: 0 });
+  await lonely.wait((m) => m.type === "waiting");
+  const seated = await lonely.wait(
+    (m) => m.type === "state" && m.players.length === 2,
+    9000,
+  );
+  assert.equal(
+    seated.players[1 - seated.yourIndex].bot,
+    true,
+    "after the wait a bot takes the empty seat",
+  );
+  assert.equal(seated.stake, 0);
+  lonely.ws.close();
 });

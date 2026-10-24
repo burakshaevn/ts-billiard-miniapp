@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createGame, shoot, step, type Game } from "../shared/game.ts";
+import { BOT_NAMES, BOT_SKILL, planShot } from "../shared/bot.ts";
 import {
   WELCOME_BERRIES,
   canAfford,
@@ -31,6 +32,8 @@ type Client = {
   key: string;
   /** Telegram user id, needed to bill Stars through the bot. */
   tgId?: number;
+  /** A computer opponent: no socket, no wallet of its own. */
+  bot?: true;
   ws: WebSocket;
   room?: string;
   alive: boolean;
@@ -48,6 +51,8 @@ type Room = {
   stake: number;
   /** Berries held by the table, paid out to the winner. */
   pot: number;
+  /** When the bot at this table is due to take its shot (0 = not thinking). */
+  botAt?: number;
 };
 const clients = new Map<string, Client>(),
   rooms = new Map<string, Room>();
@@ -88,7 +93,10 @@ function saveWallets() {
     }
   }, 500).unref?.();
 }
+/** The house plays the bots: its purse is neither counted nor saved. */
+const isHouse = (key: string) => key.startsWith("bot:");
 function balanceOf(key: string) {
+  if (isHouse(key)) return Number.MAX_SAFE_INTEGER;
   if (!wallets.has(key)) {
     wallets.set(key, WELCOME_BERRIES);
     saveWallets();
@@ -96,6 +104,7 @@ function balanceOf(key: string) {
   return wallets.get(key)!;
 }
 function addBerries(key: string, amount: number) {
+  if (isHouse(key)) return;
   wallets.set(key, Math.max(0, balanceOf(key) + Math.round(amount)));
   saveWallets();
   pushWallet(key);
@@ -126,6 +135,7 @@ function state(r: Room) {
         id: p.id,
         name: p.name,
         avatar: p.avatar,
+        bot: p.bot,
       })),
       yourIndex: i,
       code: r.code,
@@ -236,6 +246,44 @@ function newRoom(players: Client[], isPrivate: boolean, stake: number) {
   pushTables();
   return room;
 }
+/* -------------------------------- Bots ---------------------------------- */
+/**
+ * A computer opponent, so a player at an empty table is not left alone. It
+ * is an ordinary room member without a socket: the same `shoot()` moves its
+ * cue, the same escrow takes its stake — only the money comes from the house.
+ */
+/** How long a lonely public table waits for a human before a bot sits down. */
+const BOT_WAIT_MS = Number(process.env.BOT_WAIT_MS || 20000);
+const silentSocket = {
+  readyState: WebSocket.CLOSED,
+  send() {},
+  close() {},
+  terminate() {},
+  ping() {},
+} as unknown as WebSocket;
+function makeBot(): Client {
+  return {
+    id: "bot-" + randomUUID(),
+    name: BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)],
+    key: "bot:house",
+    bot: true,
+    ws: silentSocket,
+    alive: true,
+    lastAction: 0,
+  };
+}
+/** Seat a bot at a table that is still waiting for an opponent. */
+function seatBot(room: Room) {
+  if (room.players.length !== 1 || room.players[0].bot) return false;
+  const human = room.players[0];
+  if (!canAfford(balanceOf(human.key), room.stake)) return false;
+  room.players.push(makeBot());
+  escrow(room);
+  state(room);
+  pushTables();
+  return true;
+}
+
 /** Sit down at a table that is waiting for a second player. */
 function sit(c: Client, room: Room) {
   if (!canAfford(balanceOf(c.key), room.stake)) {
@@ -374,6 +422,20 @@ wss.on("connection", (ws) => {
         sit(c, room);
         return;
       }
+      // Play a bot straight away, without waiting for anyone.
+      if (m.type === "bot") {
+        const stake = isStake(m.stake) ? m.stake : 0;
+        if (!canAfford(balanceOf(c.key), stake)) {
+          send(c, {
+            type: "error",
+            message: `Не хватает ягодок: нужно ${stake}, а у тебя ${balanceOf(c.key)}.`,
+          });
+          return;
+        }
+        leave(c);
+        seatBot(newRoom([c], false, stake));
+        return;
+      }
       // Berries for Telegram Stars. The invoice is created by the bot; the
       // balance is credited only by the payment webhook below.
       if (m.type === "topup") {
@@ -387,6 +449,10 @@ wss.on("connection", (ws) => {
         if (!room || room.players.length !== 2 || room.game.winner === null)
           return;
         c.rematch = true;
+        // A bot never gets bored: it is always up for another rack.
+        room.players.forEach((p) => {
+          if (p.bot) p.rematch = true;
+        });
         if (room.players.every((p) => p.rematch)) {
           room.players.forEach((p) => delete p.rematch);
           // Another game means another bet: both pay in again.
@@ -449,6 +515,43 @@ setInterval(() => {
     }
   if (broadcast) lastBroadcast = now;
 }, 1000 / 120);
+// The bots: one pass every quarter second is plenty for a turn based game.
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    // Nobody came: rather than leave a player staring at an empty table,
+    // sit a bot down opposite them.
+    if (
+      !room.private &&
+      room.players.length === 1 &&
+      now - room.created > BOT_WAIT_MS
+    ) {
+      seatBot(room);
+      continue;
+    }
+    const player = room.players[room.game.turn];
+    if (
+      !player?.bot ||
+      room.players.length !== 2 ||
+      room.game.moving ||
+      room.game.winner !== null
+    ) {
+      room.botAt = 0;
+      continue;
+    }
+    // Take a moment to "think", so the shot does not fire the instant the
+    // balls stop and the player can see what happened.
+    if (!room.botAt) {
+      room.botAt = now + 900 + Math.random() * 900;
+      continue;
+    }
+    if (now < room.botAt) continue;
+    room.botAt = 0;
+    const plan = planShot(room.game, room.game.turn, BOT_SKILL);
+    // No legal ball left to hit can only mean the rack is already decided.
+    if (plan && shoot(room.game, plan.angle, plan.power)) state(room);
+  }
+}, 250).unref();
 setInterval(() => {
   for (const c of clients.values()) {
     if (!c.alive) {

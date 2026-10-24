@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   Check,
   CircleHelp,
   Copy,
@@ -47,8 +48,8 @@ export type MiniProps = {
   onToggleView: () => void;
   canAim: boolean;
   isWaiting: boolean;
-  mode: "practice" | "searching" | "online";
-  players: { id: string; name: string; avatar?: string }[];
+  mode: "practice" | "searching" | "online" | "bot";
+  players: { id: string; name: string; avatar?: string; bot?: boolean }[];
   myIndex: number;
   code: string;
   connected: boolean;
@@ -74,6 +75,7 @@ export type MiniProps = {
   openTables: number;
   onPractice: () => void;
   onFindOpponent: () => void;
+  onPlayBot: () => void;
   onWallet: () => void;
   onFriends: () => void;
   onRules: () => void;
@@ -168,6 +170,7 @@ export default function MiniApp(p: MiniProps) {
                     className="mini-avatar"
                     name={p.players[1 - p.myIndex]?.name || "Соперник"}
                     src={p.players[1 - p.myIndex]?.avatar}
+                    bot={p.players[1 - p.myIndex]?.bot}
                   />
                 </div>
               </>
@@ -261,10 +264,16 @@ export default function MiniApp(p: MiniProps) {
               )}
               <button
                 className="mini-primary"
-                disabled={p.rematch === "sent"}
-                onClick={p.mode === "practice" ? p.onRestart : p.onRematch}
+                disabled={p.mode === "online" && p.rematch === "sent"}
+                onClick={
+                  p.mode === "bot"
+                    ? p.onPlayBot
+                    : p.mode === "practice"
+                      ? p.onRestart
+                      : p.onRematch
+                }
               >
-                {p.mode === "practice"
+                {p.mode !== "online"
                   ? "Ещё партию"
                   : p.rematch === "sent"
                     ? "Ждём соперника…"
@@ -285,15 +294,17 @@ export default function MiniApp(p: MiniProps) {
   return (
     <div className="mini-app mini-app-lobby">
       <header className="mini-bar">
-        <button
-          className="mini-balance"
-          onClick={p.onWallet}
-          aria-label="Кошелёк: ягодки и пополнение"
-          title="Кошелёк: ягодки и пополнение"
-        >
-          <Berry size={13} />
-          <strong>{p.balance === null ? "—" : p.balance}</strong>
-        </button>
+        {!soon && (
+          <button
+            className="mini-balance"
+            onClick={p.onWallet}
+            aria-label="Кошелёк: ягодки и пополнение"
+            title="Кошелёк: ягодки и пополнение"
+          >
+            <Berry size={13} />
+            <strong>{p.balance === null ? "—" : p.balance}</strong>
+          </button>
+        )}
         <span className={`mini-online ${p.connected ? "live" : ""}`}>
           <i />
           {soon
@@ -336,15 +347,26 @@ export default function MiniApp(p: MiniProps) {
               <span>Отправь другу ссылку или код</span>
             </>
           ) : (
-            <span>
-              {Math.floor(p.searchSeconds / 60)}:
-              {String(p.searchSeconds % 60).padStart(2, "0")} в очереди
-            </span>
+            <>
+              <span>
+                {Math.floor(p.searchSeconds / 60)}:
+                {String(p.searchSeconds % 60).padStart(2, "0")} за столом
+              </span>
+              <span>Через 20 секунд подсядет бот</span>
+            </>
           )}
-          <button className="mini-text-button" onClick={p.onCancelSearch}>
-            <X size={15} />
-            Отменить
-          </button>
+          <div className="mini-wait-actions">
+            {!p.code && (
+              <button className="mini-text-button" onClick={p.onPlayBot}>
+                <Bot size={15} />
+                Сыграть с ботом
+              </button>
+            )}
+            <button className="mini-text-button" onClick={p.onCancelSearch}>
+              <X size={15} />
+              Отменить
+            </button>
+          </div>
         </div>
       ) : (
         <div className="mini-menu">
@@ -371,6 +393,19 @@ export default function MiniApp(p: MiniProps) {
             )}
           </button>
           <button
+            className={`mini-choice ${soon ? "primary" : ""}`}
+            onClick={p.onPlayBot}
+          >
+            <Bot size={22} />
+            <span>
+              <strong>Игра с ботом</strong>
+              <small>
+                {soon ? "Работает без сервера" : "Соперник сядет сразу"}
+              </small>
+            </span>
+            <ArrowRight size={18} />
+          </button>
+          <button
             className={`mini-choice ${soon ? "muted" : ""}`}
             onClick={p.onFriends}
           >
@@ -385,10 +420,7 @@ export default function MiniApp(p: MiniProps) {
               <ArrowRight size={18} />
             )}
           </button>
-          <button
-            className={`mini-choice ${soon ? "primary" : ""}`}
-            onClick={p.onPractice}
-          >
+          <button className="mini-choice" onClick={p.onPractice}>
             <Crosshair size={22} />
             <span>
               <strong>Тренировка</strong>
@@ -398,8 +430,9 @@ export default function MiniApp(p: MiniProps) {
           </button>
           {soon && (
             <p className="mini-note">
-              Тренировка работает полностью. Онлайн включится, когда к сборке
-              добавят адрес игрового сервера.
+              Игра с ботом и тренировка работают прямо здесь. Матчи с людьми,
+              столы и ставки включатся, когда к сборке добавят адрес игрового
+              сервера.
             </p>
           )}
         </div>
