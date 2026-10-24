@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Table from "./Table";
 import BallIcon from "./BallIcon";
-import { shotSpeedMps, type Game } from "../shared/game";
+import { type Game } from "../shared/game";
 import type { CueStroke } from "../shared/rendering";
 
 export type MiniProps = {
@@ -34,6 +34,8 @@ export type MiniProps = {
   onAim: (angle: number) => void;
   /** Power the player charged on the side cue, 0..1. */
   onShoot: (power: number) => void;
+  /** Inside Telegram the client draws its own back button over ours. */
+  telegram: boolean;
   /** Camera: raking three-quarter view or straight down on the cloth. */
   view: "angled" | "top";
   onToggleView: () => void;
@@ -125,28 +127,20 @@ export default function MiniApp(p: MiniProps) {
           {/* Telegram floats its own ⋯ and ✕ over the top corner of the
               WebView, so every control of ours lives along the bottom. */}
           <footer className="mini-bar">
-            <button
-              className="mini-icon-button"
-              aria-label="Назад в меню"
-              onClick={p.onBack}
-            >
-              <ArrowLeft size={20} />
-            </button>
+            {/* Telegram shows its own back button in the same corner. */}
+            {!p.telegram && (
+              <button
+                className="mini-icon-button"
+                aria-label="Назад в меню"
+                onClick={p.onBack}
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <div className="mini-status">
               <strong className={myTurn && !g.moving ? "is-turn" : ""}>
                 {status}
               </strong>
-              <span>
-                {g.winner !== null || p.isWaiting
-                  ? ""
-                  : g.moving
-                    ? "Шары катятся"
-                    : !myTurn
-                      ? "Соперник целится"
-                      : g.shots > 0
-                        ? g.message
-                        : "Проведи по столу — повернёшь кий"}
-              </span>
             </div>
             <button
               className="mini-icon-button"
@@ -421,14 +415,7 @@ function CueControl({
         </div>
       </div>
       <span className="mini-cue-power">
-        {pull > 0 ? (
-          <>
-            {Math.round(power * 100)}%
-            <small>{shotSpeedMps(power).toFixed(1)} м/с</small>
-          </>
-        ) : (
-          <small>{enabled ? "оттяни кий" : "ждём"}</small>
-        )}
+        {pull > 0 ? `${Math.round(power * 100)}%` : ""}
       </span>
     </div>
   );

@@ -126,9 +126,11 @@ export function createTableBody(scene: THREE.Scene) {
     roughness: 0.43,
   });
   const brass = new THREE.MeshStandardMaterial({
-    color: "#a28a56",
-    metalness: 0.8,
-    roughness: 0.32,
+    color: "#9c8552",
+    // Softer than real brass on purpose: a mirror rail threw a white streak
+    // across the table on a phone.
+    metalness: 0.5,
+    roughness: 0.5,
   });
   const woodTexture = noiseTexture("wood");
   const timber = new THREE.MeshPhysicalMaterial({

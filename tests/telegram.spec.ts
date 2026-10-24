@@ -81,6 +81,10 @@ test("Telegram SDK bridge: ready, expand, safe area, back button and swipe guard
     )
     .toBe("swipes-off");
   expect(await calls()).toContain("back-show");
+  // Telegram draws its own back button in that corner: ours must not double up.
+  await expect(page.getByRole("button", { name: "Назад в меню" })).toHaveCount(
+    0,
+  );
 
   // Telegram's own back button returns to the menu instead of closing the app.
   await page.evaluate(() =>

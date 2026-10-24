@@ -951,6 +951,9 @@ function App() {
           resetKey={resetKey}
           onAim={(a) => (angleRef.current = a)}
           onShoot={(p: number) => hit(p)}
+          telegram={
+            isTelegramClient() && !!window.Telegram?.WebApp?.BackButton?.show
+          }
           view={view}
           onToggleView={toggleView}
           canAim={canAim}

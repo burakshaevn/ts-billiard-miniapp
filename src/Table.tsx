@@ -220,27 +220,40 @@ export default function Table({
     tip.position.x = -RADIUS - 0.0325;
     stick.add(tip);
     scene.add(cue);
-    const aimGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(),
-      new THREE.Vector3(),
-    ]);
-    const aim = new THREE.Line(
-      aimGeo,
-      new THREE.LineDashedMaterial({
-        color: 0xd6f4dc,
-        dashSize: 0.1,
-        gapSize: 0.11,
-        transparent: true,
-        opacity: 0.7,
-      }),
-    );
-    scene.add(aim);
+    // Two short guides, like every mobile pool game: a stub in front of the
+    // cue ball for the direction, and one on the object ball for the cut.
+    const line = (color: number, opacity: number) => {
+      const l = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(),
+          new THREE.Vector3(),
+        ]),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity }),
+      );
+      scene.add(l);
+      return l;
+    };
+    const aim = line(0xeaf7e4, 0.75),
+      target = line(0xffe071, 0.95);
+    const setLine = (
+      l: THREE.Line,
+      x1: number,
+      z1: number,
+      x2: number,
+      z2: number,
+    ) => {
+      const a = l.geometry.attributes.position as THREE.BufferAttribute;
+      a.setXYZ(0, x1, 0.062, z1);
+      a.setXYZ(1, x2, 0.062, z2);
+      a.needsUpdate = true;
+      l.geometry.computeBoundingSphere();
+    };
     const ghost = new THREE.Mesh(
-      new THREE.RingGeometry(RADIUS * 0.91, RADIUS, 40),
+      new THREE.RingGeometry(RADIUS * 0.82, RADIUS, 40),
       new THREE.MeshBasicMaterial({
-        color: 0xe1ffe3,
+        color: 0xf2fff2,
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.8,
         side: THREE.DoubleSide,
       }),
     );
@@ -487,6 +500,7 @@ export default function Table({
         lastVisible = visible;
       }
       cue.visible = aim.visible = ghost.visible = visible;
+      if (!visible) target.visible = false;
       if (!visible && renderer.domElement.dataset.grip)
         delete renderer.domElement.dataset.grip;
       if (strokeRef.current) {
@@ -504,7 +518,8 @@ export default function Table({
         renderer.domElement.dataset.grip = [...grip, ...centre]
           .map((n) => Math.round(n))
           .join(",");
-        let dist = WIDTH;
+        let dist = WIDTH,
+          hit: (typeof g.balls)[number] | null = null;
         for (let t = RADIUS; t < WIDTH; t += 0.025) {
           const x = b.x + dx * t,
             z = b.y + dz * t;
@@ -526,23 +541,44 @@ export default function Table({
               );
               return Math.hypot(x - a[0] - u * sx, z - a[1] - u * sz) < RADIUS;
             }) ||
-            g.balls.some(
-              (o) =>
-                o.id !== 0 &&
-                !o.pocketed &&
-                Math.hypot(o.x - x, o.y - z) < RADIUS * 2,
-            )
+            (hit =
+              g.balls.find(
+                (o) =>
+                  o.id !== 0 &&
+                  !o.pocketed &&
+                  Math.hypot(o.x - x, o.y - z) < RADIUS * 2,
+              ) ?? null)
           ) {
             dist = t;
             break;
           }
         }
-        const arr = aim.geometry.attributes.position as THREE.BufferAttribute;
-        arr.setXYZ(0, b.x, 0.06, b.y);
-        arr.setXYZ(1, b.x + dx * dist, 0.06, b.y + dz * dist);
-        arr.needsUpdate = true;
-        aim.computeLineDistances();
-        ghost.position.set(b.x + dx * dist, 0.062, b.y + dz * dist);
+        // Short stub out of the cue ball: direction only, no path to trace.
+        const stub = Math.min(dist, RADIUS * 2 + 0.55);
+        setLine(
+          aim,
+          b.x + dx * RADIUS,
+          b.y + dz * RADIUS,
+          b.x + dx * stub,
+          b.y + dz * stub,
+        );
+        const gx = b.x + dx * dist,
+          gz = b.y + dz * dist;
+        ghost.position.set(gx, 0.062, gz);
+        // Where the object ball leaves the collision: centre to centre.
+        if (hit) {
+          const ox = hit.x - gx,
+            oz = hit.y - gz,
+            len = Math.hypot(ox, oz) || 1;
+          setLine(
+            target,
+            hit.x,
+            hit.y,
+            hit.x + (ox / len) * 1.15,
+            hit.y + (oz / len) * 1.15,
+          );
+        }
+        target.visible = !!hit;
       }
       if (sceneDirty) {
         renderer.render(scene, camera);
