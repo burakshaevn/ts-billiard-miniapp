@@ -51,6 +51,7 @@ import {
 } from "../shared/wallet";
 import {
   createGame,
+  resultText,
   shoot,
   step,
   shotSpeedMps,
@@ -330,6 +331,16 @@ function App() {
     }
     exitToPractice();
   }
+  /**
+   * The button under the result. Whoever we were just playing, we play
+   * again with them: the bot locally, the opponent over the wire, the
+   * practice rack on our own.
+   */
+  function playAgain() {
+    if (mode === "bot") return startBotMatch();
+    if (mode === "online") return askRematch();
+    resetPractice();
+  }
   function startPractice() {
     if (mode === "bot") {
       resetPractice();
@@ -444,7 +455,10 @@ function App() {
     send({ type: "topup", pack: packId });
   }
   function askRematch() {
-    if (!send({ type: "rematch" })) return;
+    if (!send({ type: "rematch" })) {
+      notify("Нет связи с сервером. Соперника о реванше не спросить.");
+      return;
+    }
     setRematch("sent");
   }
   function toggleView() {
@@ -1470,8 +1484,8 @@ function App() {
           onToggleSound={() => setSound((v) => !v)}
           onBack={leaveTable}
           rematch={rematch}
-          onRematch={askRematch}
           onRestart={() => resetPractice()}
+          onPlayAgain={playAgain}
           onCancelSearch={exitToPractice}
           onCopyInvite={copyInvite}
         />
@@ -1629,9 +1643,11 @@ function App() {
                 <span className="mode-tag">
                   {mode === "practice"
                     ? "ТРЕНИРОВКА"
-                    : code
-                      ? "С ДРУГОМ"
-                      : "ОНЛАЙН"}
+                    : mode === "bot"
+                      ? "С БОТОМ"
+                      : code
+                        ? "С ДРУГОМ"
+                        : "ОНЛАЙН"}
                 </span>
               </div>
               <div className="table-stage">
@@ -1696,26 +1712,26 @@ function App() {
                       <h3>
                         {g.winner === (mode === "practice" ? 0 : myIndex)
                           ? "Красивая победа!"
-                          : "Ещё один раунд?"}
+                          : "Поражение"}
                       </h3>
                       <p>
-                        {g.message}
-                        {mode !== "practice" && rematch === "offered"
+                        {resultText(g, mode === "practice" ? 0 : myIndex)}
+                        {mode === "online" && rematch === "offered"
                           ? " Соперник предлагает сыграть ещё."
                           : ""}
                       </p>
                       <button
                         className="primary-button"
-                        disabled={rematch === "sent"}
-                        onClick={() =>
-                          mode === "practice" ? resetPractice() : askRematch()
-                        }
+                        disabled={mode === "online" && rematch === "sent"}
+                        onClick={playAgain}
                       >
                         {mode === "practice"
                           ? "Вернуться за стол"
-                          : rematch === "sent"
-                            ? "Ждём соперника…"
-                            : "Сыграть ещё"}
+                          : mode === "bot"
+                            ? "Ещё партию"
+                            : rematch === "sent"
+                              ? "Ждём соперника…"
+                              : "Сыграть ещё"}
                         <ArrowRight size={18} />
                       </button>
                       {mode !== "practice" && (
@@ -1799,23 +1815,27 @@ function App() {
                 <button
                   className="reset-button icon-button"
                   aria-label={
-                    mode === "practice"
-                      ? "Расставить шары заново"
-                      : "Выйти из матча"
+                    mode === "online"
+                      ? "Выйти из матча"
+                      : "Расставить шары заново"
                   }
                   title={
-                    mode === "practice"
-                      ? "Расставить шары заново"
-                      : "Выйти из матча"
+                    mode === "online"
+                      ? "Выйти из матча"
+                      : "Расставить шары заново"
                   }
                   onClick={() =>
-                    mode === "practice" ? resetPractice() : setModal("leave")
+                    mode === "online"
+                      ? setModal("leave")
+                      : mode === "bot"
+                        ? startBotMatch()
+                        : resetPractice()
                   }
                 >
-                  {mode === "practice" ? (
-                    <RotateCcw size={18} />
-                  ) : (
+                  {mode === "online" ? (
                     <Flag size={18} />
+                  ) : (
+                    <RotateCcw size={18} />
                   )}
                 </button>
                 <button

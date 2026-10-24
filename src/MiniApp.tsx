@@ -26,7 +26,7 @@ import Avatar from "./Avatar";
 import Berry from "./Berry";
 import { BALL_COLORS } from "./balls";
 import { LOGO_LARGE_URL } from "./config";
-import { type Game } from "../shared/game";
+import { resultText, type Game } from "../shared/game";
 import type { CueStroke } from "../shared/rendering";
 
 export type MiniProps = {
@@ -87,8 +87,9 @@ export type MiniProps = {
   onBack: () => void;
   /** Another game with the same opponent: who has asked so far. */
   rematch: "none" | "sent" | "offered";
-  onRematch: () => void;
   onRestart: () => void;
+  /** Another rack with whoever we were playing: bot, opponent or nobody. */
+  onPlayAgain: () => void;
   onCancelSearch: () => void;
   onCopyInvite: () => void;
 };
@@ -252,8 +253,8 @@ export default function MiniApp(p: MiniProps) {
                   : "Поражение"}
               </h3>
               <p>
-                {g.message}
-                {p.mode !== "practice" && p.rematch === "offered"
+                {resultText(g, p.mode === "practice" ? 0 : p.myIndex)}
+                {p.mode === "online" && p.rematch === "offered"
                   ? " Соперник предлагает сыграть ещё."
                   : ""}
               </p>
@@ -268,13 +269,7 @@ export default function MiniApp(p: MiniProps) {
               <button
                 className="mini-primary"
                 disabled={p.mode === "online" && p.rematch === "sent"}
-                onClick={
-                  p.mode === "bot"
-                    ? p.onPlayBot
-                    : p.mode === "practice"
-                      ? p.onRestart
-                      : p.onRematch
-                }
+                onClick={p.onPlayAgain}
               >
                 {p.mode !== "online"
                   ? "Ещё партию"

@@ -56,6 +56,12 @@ export type Game = {
   canPocketEight: boolean;
   /** Last shot broke a rule: scratch or no legal first contact. */
   foul: boolean;
+  /**
+   * How the rack ended. The engine states the fact; the interface says what
+   * it means for the player looking at the screen, because "отличная победа"
+   * under someone else's win is just rude.
+   */
+  ending: "eight" | "early-eight" | null;
 };
 export const groupOf = (id: number): Group => (id < 8 ? "solids" : "stripes");
 export function createGame(solo = false): Game {
@@ -110,6 +116,7 @@ export function createGame(solo = false): Game {
     shots: 0,
     target: null,
     canPocketEight: false,
+    ending: null,
     foul: false,
     message: solo ? "Стол твой. Начнём?" : "Первый игрок разбивает пирамиду",
     solo,
@@ -334,10 +341,11 @@ function finishShot(g: Game) {
   if (g.shotPocketed.includes(8)) {
     const cleared = g.canPocketEight;
     g.winner = cleared && !foul ? p : 1 - p;
+    g.ending = cleared && !foul ? "eight" : "early-eight";
     g.message =
-      cleared && !foul
-        ? "Восьмёрка в лузе. Отличная победа!"
-        : "Восьмёрка забита раньше времени";
+      g.ending === "eight"
+        ? "Восьмёрка в лузе."
+        : "Восьмёрка забита раньше времени.";
     return;
   }
   const first = g.shotPocketed.find((id) => id !== 0 && id !== 8);
@@ -357,4 +365,22 @@ function finishShot(g: Game) {
       : scored
         ? "Хороший удар! Продолжай."
         : "Следующий удар — новая возможность";
+}
+
+/**
+ * The line under the result, written for the player who is reading it.
+ * `index` is that player's seat (0 in practice).
+ */
+export function resultText(g: Game, index: number): string {
+  if (g.winner === null) return g.message;
+  const won = g.winner === index;
+  if (g.ending === "eight")
+    return won
+      ? "Восьмёрка в лузе. Партия твоя."
+      : "Соперник закрыл партию восьмёркой.";
+  if (g.ending === "early-eight")
+    return won
+      ? "Соперник забил восьмёрку раньше времени."
+      : "Восьмёрка забита раньше времени. Партия проиграна.";
+  return g.message;
 }
