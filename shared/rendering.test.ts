@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createGame } from "./game.ts";
-import { sampleSnapshots, cueGap, STROKE_MS } from "./rendering.ts";
+import {
+  sampleSnapshots,
+  cueGap,
+  CUE_REST_GAP,
+  RELEASE_MS,
+  STROKE_MS,
+} from "./rendering.ts";
 test("network interpolation has constant velocity instead of ease-in acceleration", () => {
   const b = createGame().balls[0];
   const snapshots = [
@@ -19,4 +25,20 @@ test("cue returns to exact contact at the impulse time", () => {
   assert.equal(cueGap(stroke, 100, 0.8), 0.12);
   assert.ok(cueGap(stroke, 100 + STROKE_MS * 0.6, 0.8) > 0.6);
   assert.equal(cueGap(stroke, 100 + STROKE_MS, 0.8), 0);
+});
+test("a hand-pulled cue starts back where the player left it and reaches the ball on release", () => {
+  const holding = cueGap(null, 0, 0.5, 0.9);
+  assert.ok(
+    holding > CUE_REST_GAP + 0.5,
+    "holding the cue keeps it pulled back",
+  );
+  assert.equal(cueGap(null, 0, 0.5, 0), CUE_REST_GAP);
+  const stroke = { startedAt: 50, angle: 0, power: 0.9, pulled: true };
+  assert.ok(
+    Math.abs(cueGap(stroke, 50, 0.9) - holding) < 0.02,
+    "no jump on release",
+  );
+  assert.ok(cueGap(stroke, 50 + RELEASE_MS / 2, 0.9) < holding);
+  assert.equal(cueGap(stroke, 50 + RELEASE_MS, 0.9), 0);
+  assert.ok(RELEASE_MS < STROKE_MS);
 });

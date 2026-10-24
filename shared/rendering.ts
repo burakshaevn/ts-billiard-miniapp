@@ -34,13 +34,49 @@ export function sampleSnapshots(
   }
   return snapshots[snapshots.length - 1].balls;
 }
-export type CueStroke = { startedAt: number; angle: number; power: number };
+export type CueStroke = {
+  startedAt: number;
+  angle: number;
+  power: number;
+  /** Released from a hand-pulled cue: the backswing already happened on screen. */
+  pulled?: boolean;
+};
+/** Button shot: backswing, then thrust. */
 export const STROKE_MS = 210;
-export function cueGap(stroke: CueStroke | null, now: number, power: number) {
-  if (!stroke) return 0.12;
-  const t = Math.max(0, Math.min(1, (now - stroke.startedAt) / STROKE_MS));
-  const pullback = 0.18 + power * 0.65;
-  if (t < 0.6) return 0.12 + pullback * Math.sin(((t / 0.6) * Math.PI) / 2);
+/** Released pull: only the forward thrust is left to animate. */
+export const RELEASE_MS = 95;
+/** Resting distance between tip and cue ball. */
+export const CUE_REST_GAP = 0.12;
+/** How far back the tip travels for a given power, in table units. */
+export function pullDistance(power: number) {
+  return 0.18 + Math.max(0, Math.min(1, power)) * 1;
+}
+export function strokeDuration(stroke: CueStroke | null) {
+  return stroke?.pulled ? RELEASE_MS : STROKE_MS;
+}
+/**
+ * Tip-to-ball distance. `pull` is the live hand-drag (0..1) while the player
+ * holds the cue back; it reaches 0 exactly at the impulse time.
+ */
+export function cueGap(
+  stroke: CueStroke | null,
+  now: number,
+  power: number,
+  pull = 0,
+) {
+  if (!stroke)
+    return CUE_REST_GAP + (pull > 0 ? pullDistance(pull) - pullDistance(0) : 0);
+  const t = Math.max(
+    0,
+    Math.min(1, (now - stroke.startedAt) / strokeDuration(stroke)),
+  );
+  if (stroke.pulled) {
+    const back = CUE_REST_GAP + pullDistance(stroke.power) - pullDistance(0);
+    return back * (1 - t) * (1 - t);
+  }
+  const pullback = pullDistance(power) - 0.07;
+  if (t < 0.6)
+    return CUE_REST_GAP + pullback * Math.sin(((t / 0.6) * Math.PI) / 2);
   const forward = (t - 0.6) / 0.4;
-  return (0.12 + pullback) * (1 - forward * forward);
+  return (CUE_REST_GAP + pullback) * (1 - forward * forward);
 }

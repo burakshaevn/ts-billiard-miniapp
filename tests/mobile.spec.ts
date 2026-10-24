@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { pullCue, swingCue } from "./gesture";
 
 // Phone-sized viewport: the app must render the compact Mini App layout —
 // a short menu and then nothing but the table and the shot controls.
@@ -29,11 +30,19 @@ test("mini app on a phone: menu, practice table, online match", async ({
 
   await a.getByRole("button", { name: /Тренировка/ }).click();
   await expect(a.locator(".mini-stage canvas")).toBeVisible();
-  await expect(a.getByRole("button", { name: "Удар" })).toBeEnabled();
   expect(await fits(a)).toBe(true);
-  const stage = await a.locator(".mini-stage").boundingBox();
-  // The table has to own most of the screen on the game screen.
-  expect(stage!.height).toBeGreaterThan(560);
+  // A portrait phone shows the table sideways: the frame is turned 90°, so the
+  // canvas itself is wide and fills the screen.
+  await expect(a.locator(".mini-app-game")).toHaveClass(/is-rotated/);
+  const canvas = await a.evaluate(() => {
+    const c = document.querySelector(".mini-stage canvas") as HTMLCanvasElement;
+    return { w: c.clientWidth, h: c.clientHeight };
+  });
+  expect(canvas.w).toBeGreaterThan(canvas.h * 1.5);
+  expect(canvas.w).toBeGreaterThan(800);
+  // No shot button and no power slider: the cue itself is the control.
+  await expect(a.getByRole("button", { name: "Удар" })).toHaveCount(0);
+  await expect(a.getByRole("slider")).toHaveCount(0);
   await a.getByRole("button", { name: "Назад в меню" }).click();
   await expect(
     a.getByRole("heading", { name: "Пул «Восьмёрка»" }),
@@ -49,12 +58,9 @@ test("mini app on a phone: menu, practice table, online match", async ({
   await expect(b.locator(".mini-stage canvas")).toBeVisible();
   await expect(a.getByText("Твой ход")).toBeVisible();
   await expect(b.getByText(/Ход: /)).toBeVisible();
-  await expect(a.getByRole("button", { name: "Удар" })).toBeEnabled();
-  await expect(b.getByRole("button", { name: "Удар" })).toBeDisabled();
   expect(await fits(a)).toBe(true);
 
-  await a.getByRole("slider").fill("15");
-  await a.getByRole("button", { name: "Удар" }).click();
+  await pullCue(a, 40);
   await expect(b.getByText("Шары в движении")).toBeVisible();
   await b.close();
   await expect(
@@ -81,14 +87,17 @@ test("practice-only build: no server, no failed connections, balls come to rest"
 
   await page.getByRole("button", { name: /Тренировка/ }).click();
   await expect(page.locator(".mini-stage canvas")).toBeVisible();
-  await page.getByRole("slider").fill("35");
-  await page.getByRole("button", { name: "Удар" }).click();
+  // Dragging the cloth only turns the cue, it never fires a shot.
+  await swingCue(page);
+  await expect(page.getByText("Шары в движении")).toHaveCount(0);
+  // Pulling the cue back charges the power read-out, releasing it shoots.
+  await page.mouse.move(0, 0);
+  await pullCue(page, 70);
   await expect(page.getByText("Шары в движении")).toBeVisible();
   // A shot has to settle on its own; software rendering here is slow.
   await expect(page.getByText("Шары в движении")).toHaveCount(0, {
     timeout: 60000,
   });
-  await expect(page.getByRole("button", { name: "Удар" })).toBeEnabled();
   // Vite's own HMR socket is expected; the game socket must never be opened.
   expect(sockets.filter((url) => url.endsWith("/ws"))).toEqual([]);
   expect(errors).toEqual([]);

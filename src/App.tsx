@@ -45,7 +45,7 @@ import {
   shotSpeedMps,
   type Game,
 } from "../shared/game";
-import { STROKE_MS, type CueStroke } from "../shared/rendering";
+import { STROKE_MS, RELEASE_MS, type CueStroke } from "../shared/rendering";
 
 type Player = { id: string; name: string };
 type Match = { date: string; result: string; shots: number; opponent: string };
@@ -240,7 +240,9 @@ function App() {
     send({ type: "queue" });
     setSearchSeconds(0);
   }
-  function hit() {
+  // `pulled` means the player dragged the cue back and let go: the stick is
+  // already behind the ball, so only the short forward release is animated.
+  function hit(shotPower: number = power, pulled = false) {
     if (!canAim || g.moving || g.winner !== null || strokeRef.current) return;
     // Unlock audio during the user gesture; play the click at tip contact, not on button press.
     if (soundRef.current)
@@ -253,34 +255,38 @@ function App() {
     const stroke = {
       startedAt: performance.now(),
       angle: angleRef.current,
-      power,
+      power: shotPower,
+      pulled,
     };
     strokeRef.current = stroke;
     setPreparing(true);
-    strokeTimer.current = setTimeout(() => {
-      if (
-        strokeRef.current !== stroke ||
-        gameRef.current !== g ||
-        modeRef.current !== mode
-      ) {
-        cancelStroke();
-        return;
-      }
-      audio("shot");
-      haptic("shot");
-      if (mode === "online") {
-        send({ type: "shoot", angle: stroke.angle, power: stroke.power });
-        // Hold at contact until the authoritative server acknowledges the impulse.
-        strokeTimer.current = setTimeout(() => {
+    strokeTimer.current = setTimeout(
+      () => {
+        if (
+          strokeRef.current !== stroke ||
+          gameRef.current !== g ||
+          modeRef.current !== mode
+        ) {
           cancelStroke();
-          notify("Сервер не подтвердил удар. Проверь соединение.");
-        }, 2500);
-      } else {
-        shoot(g, stroke.angle, stroke.power);
-        cancelStroke();
-        setTick((t) => t + 1);
-      }
-    }, STROKE_MS);
+          return;
+        }
+        audio("shot");
+        haptic("shot");
+        if (mode === "online") {
+          send({ type: "shoot", angle: stroke.angle, power: stroke.power });
+          // Hold at contact until the authoritative server acknowledges the impulse.
+          strokeTimer.current = setTimeout(() => {
+            cancelStroke();
+            notify("Сервер не подтвердил удар. Проверь соединение.");
+          }, 2500);
+        } else {
+          shoot(g, stroke.angle, stroke.power);
+          cancelStroke();
+          setTick((t) => t + 1);
+        }
+      },
+      pulled ? RELEASE_MS : STROKE_MS,
+    );
   }
   useEffect(() => {
     const visibility = () => {
@@ -939,6 +945,7 @@ function App() {
           strokeRef={strokeRef}
           resetKey={resetKey}
           onAim={(a) => (angleRef.current = a)}
+          onShoot={(p) => hit(p, true)}
           canAim={canAim}
           isWaiting={isWaiting}
           mode={mode}
@@ -949,15 +956,12 @@ function App() {
           onlineAvailable={onlineAvailable}
           population={population}
           power={power}
-          setPower={setPower}
-          preparing={preparing}
           busy={busy}
           searchSeconds={searchSeconds}
           inviteCopied={inviteCopied}
           name={name}
           sound={sound}
           matches={records.length}
-          onHit={hit}
           onPractice={startPractice}
           onFindOpponent={startSearch}
           onFriends={openFriends}
@@ -1173,6 +1177,8 @@ function App() {
                   gameRef={gameRef}
                   angleRef={angleRef}
                   onAim={(a) => (angleRef.current = a)}
+                  onCharge={(p) => p !== null && setPower(p)}
+                  onShoot={(p) => hit(p, true)}
                   canAim={canAim && !isWaiting}
                   power={power}
                   resetKey={resetKey}
@@ -1187,7 +1193,7 @@ function App() {
                         ? g.message
                         : mode === "online" && !canAim
                           ? "Соперник выбирает направление"
-                          : "Наведи прицел на столе — и сделай свой ход"}
+                          : "Потяни кий назад и отпусти — или нажми «Ударить»"}
                   </div>
                 )}
                 {isWaiting && (
@@ -1333,7 +1339,7 @@ function App() {
                 </button>
                 <button
                   className="hit-button"
-                  onClick={hit}
+                  onClick={() => hit()}
                   disabled={
                     !canAim ||
                     isWaiting ||

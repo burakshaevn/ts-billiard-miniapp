@@ -6,6 +6,31 @@ body.mini-mode {
   overscroll-behavior: none;
   background: #0d1210;
 }
+:root {
+  --frame-top: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
+  --frame-right: max(
+    env(safe-area-inset-right, 0px),
+    var(--app-safe-right, 0px)
+  );
+  --frame-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--app-safe-bottom, 0px)
+  );
+  --frame-left: max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+}
+/* Rotated by 90°: the device top edge is now this frame's left edge. */
+.is-rotated {
+  --frame-top: max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px));
+  --frame-right: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--app-safe-bottom, 0px)
+  );
+  --frame-bottom: max(
+    env(safe-area-inset-left, 0px),
+    var(--app-safe-left, 0px)
+  );
+  --frame-left: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
+}
 .mini-app {
   position: fixed;
   inset: 0;
@@ -16,10 +41,8 @@ body.mini-mode {
   touch-action: manipulation;
   background:
     radial-gradient(90% 60% at 50% 0%, #1b2a20 0%, transparent 70%), #0d1210;
-  padding: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px))
-    max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px))
-    max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom, 0px))
-    max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+  padding: var(--frame-top) var(--frame-right) var(--frame-bottom)
+    var(--frame-left);
 }
 .mini-bar {
   flex: 0 0 auto;
@@ -251,11 +274,64 @@ body.mini-mode {
 .mini-tabs button:active {
   background: #19211b;
 }
-/* Game screen */
+/* Game screen: the table owns the whole frame, chrome floats above it. */
+.mini-app-game {
+  padding: 0;
+  /* The table floats in a dark room, not on a flat black rectangle. */
+  background: radial-gradient(
+    125% 95% at 50% 40%,
+    #1a2a22 0%,
+    #101713 48%,
+    #070a09 100%
+  );
+}
+/* A pool table is 2:1, so a portrait phone turns the whole screen sideways.
+   Pointer input is remapped to match (see isRotated in Table.tsx). */
+.mini-app-game.is-rotated {
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: var(--app-viewport-height, 100dvh);
+  height: 100vw;
+  transform-origin: 0 0;
+  transform: rotate(90deg) translateY(-100%);
+}
+.mini-app-game .mini-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Fingers drag the cue; never scroll or bounce the page instead. */
+  touch-action: none;
+}
+.mini-stage .table-canvas {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  height: 100%;
+}
 .mini-app-game .mini-bar {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
   gap: 8px;
-  padding: 8px 10px;
-  min-height: 44px;
+  padding: calc(6px + var(--frame-top, 0px)) calc(8px + var(--frame-right, 0px))
+    6px calc(8px + var(--frame-left, 0px));
+  min-height: 40px;
+  pointer-events: none;
+  background: linear-gradient(180deg, #0b100ecc, #0b100e00);
+}
+.mini-app-game .mini-bar button {
+  pointer-events: auto;
+}
+.mini-app-game .mini-icon-button {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-radius: 10px;
+  background: #151c1799;
+  backdrop-filter: blur(4px);
 }
 .mini-status {
   flex: 1;
@@ -283,33 +359,71 @@ body.mini-mode {
   white-space: nowrap;
 }
 .mini-pocketed {
-  flex: 0 0 auto;
+  position: absolute;
+  top: calc(44px + var(--frame-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  justify-content: center;
   gap: 4px;
-  padding: 0 10px 4px;
-  min-height: 20px;
 }
 .mini-pocketed .ball-icon.small {
-  width: 17px;
-  height: 17px;
-  font-size: 8px;
+  width: 16px;
+  height: 16px;
+  font-size: 7.5px;
 }
-.mini-stage {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.mini-stage .table-canvas {
+/* Power is charged by pulling the cue, so this is a read-out, not a control. */
+.mini-charge {
   position: absolute;
-  inset: 0;
-  min-height: 0;
-  height: 100%;
+  z-index: 2;
+  right: calc(10px + var(--frame-right, 0px));
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+.mini-charge-track {
+  position: relative;
+  width: 9px;
+  height: 108px;
+  border-radius: 999px;
+  background: #0f151299;
+  border: 1px solid #28332b;
+  overflow: hidden;
+}
+.mini-charge-track i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #d9f294, #7fbf63);
+  transition: height 60ms linear;
+}
+.mini-charge span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--lime);
+  font-variant-numeric: tabular-nums;
+}
+.mini-charge small {
+  font-size: 9px;
+  font-weight: 500;
+  color: #9fae93;
+}
+.mini-charge.is-firing .mini-charge-track i {
+  background: #f2f7e6;
 }
 .mini-hint {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  bottom: calc(6px + var(--frame-bottom, 0px));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -354,8 +468,7 @@ body.mini-mode {
 .mini-overlay .winner-icon {
   color: var(--lime);
 }
-.mini-primary,
-.mini-hit {
+.mini-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -366,89 +479,6 @@ body.mini-mode {
   font-weight: 600;
   color: #16200f;
   background: linear-gradient(180deg, #d9f294, #b2d06c);
-}
-.mini-controls {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid #222a23;
-  background: #111714;
-}
-.mini-power {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.mini-power label {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
-  color: #9fae93;
-}
-.mini-power label span {
-  color: var(--lime);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.mini-power input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 22px;
-  background: none;
-}
-.mini-power input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--lime) var(--progress, 50%),
-    #27302a var(--progress, 50%)
-  );
-}
-.mini-power input[type="range"]::-moz-range-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--lime) var(--progress, 50%),
-    #27302a var(--progress, 50%)
-  );
-}
-.mini-power input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  margin-top: -8px;
-  border-radius: 50%;
-  background: #f2f7e6;
-  border: 3px solid #7f9b53;
-}
-.mini-power input[type="range"]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #f2f7e6;
-  border: 3px solid #7f9b53;
-}
-.mini-hit {
-  flex: 0 0 auto;
-  min-width: 112px;
-  min-height: 52px;
-  font-size: 15px;
-}
-.mini-hit:disabled {
-  background: #232b24;
-  color: #7e8a78;
 }
 /* Short screens: keep everything on one page without scrolling. */
 @media (max-height: 640px) {
@@ -479,37 +509,23 @@ body.mini-mode {
     margin-right: auto;
   }
 }
-/* Landscape phone: trim the chrome so the table still owns the screen. */
+/* Short frame (phone held sideways): trim the floating chrome even further. */
 @media (max-height: 460px) {
   .mini-app-game .mini-bar {
-    padding: 4px 8px;
-    min-height: 36px;
+    min-height: 34px;
   }
   .mini-app-game .mini-icon-button {
-    width: 32px;
-    height: 32px;
-    flex-basis: 32px;
-    border-radius: 9px;
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
   }
   .mini-pocketed {
-    display: none;
+    top: calc(38px + var(--frame-top, 0px));
   }
-  .mini-controls {
-    padding: 6px 10px 8px;
-    gap: 10px;
+  .mini-charge-track {
+    height: 84px;
   }
-  .mini-hit {
-    min-height: 42px;
-    min-width: 96px;
-    font-size: 14px;
-  }
-  .mini-power label {
-    font-size: 10px;
-  }
-  .mini-power input[type="range"] {
-    height: 18px;
-  }
-  .mini-hint {
+  .mini-status span {
     display: none;
   }
 }

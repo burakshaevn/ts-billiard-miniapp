@@ -91,7 +91,7 @@ function noiseTexture(kind: "cloth" | "wood") {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   t.repeat.set(kind === "wood" ? 0.7 : 5, kind === "wood" ? 1.7 : 5);
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 function cushionGeometry(points: [number, number][]) {
@@ -152,9 +152,9 @@ export function createTableBody(scene: THREE.Scene) {
   const feltMat = new THREE.MeshStandardMaterial({
     map: cloth,
     bumpMap: cloth,
-    bumpScale: 0.005,
-    roughness: 0.94,
-    color: "#a3c5ae",
+    bumpScale: 0.0075,
+    roughness: 0.92,
+    color: "#9ec4a7",
   });
   const feltGeometry = new THREE.ShapeGeometry(opening(false), 48);
   feltGeometry.rotateX(-Math.PI / 2);

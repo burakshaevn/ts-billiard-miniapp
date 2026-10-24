@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,6 +31,8 @@ export type MiniProps = {
   strokeRef: React.RefObject<CueStroke | null>;
   resetKey: number;
   onAim: (angle: number) => void;
+  /** Power the player charged by pulling the cue back, 0..1. */
+  onShoot: (power: number) => void;
   canAim: boolean;
   isWaiting: boolean;
   mode: "practice" | "searching" | "online";
@@ -41,15 +44,12 @@ export type MiniProps = {
   onlineAvailable: boolean | null;
   population: number;
   power: number;
-  setPower: (power: number) => void;
-  preparing: boolean;
   busy: boolean;
   searchSeconds: number;
   inviteCopied: boolean;
   name: string;
   sound: boolean;
   matches: number;
-  onHit: () => void;
   onPractice: () => void;
   onFindOpponent: () => void;
   onFriends: () => void;
@@ -65,6 +65,11 @@ export type MiniProps = {
 
 export default function MiniApp(p: MiniProps) {
   const g = p.game;
+  // A pool table is wide: on a portrait phone the whole game screen is turned
+  // sideways so the table fills the display instead of being squeezed.
+  const rotated = useLandscapeFrame(p.screen === "game");
+  // Power is whatever the cue was pulled back to; nothing to show at rest.
+  const [charge, setCharge] = useState<number | null>(null);
   // Online is a placeholder until a game server is connected to the build.
   const soon = p.onlineAvailable === false;
   const pocketed = g.balls.filter((b) => b.pocketed && b.id !== 0);
@@ -87,69 +92,81 @@ export default function MiniApp(p: MiniProps) {
 
   if (p.screen === "game")
     return (
-      <div className="mini-app mini-app-game">
-        <header className="mini-bar">
-          <button
-            className="mini-icon-button"
-            aria-label="Назад в меню"
-            onClick={p.onBack}
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="mini-status">
-            <strong className={myTurn && !g.moving ? "is-turn" : ""}>
-              {status}
-            </strong>
-            <span>
-              {p.mode === "practice"
-                ? group
-                : `${p.players[p.myIndex]?.name || "Ты"} · ${
-                    p.players[1 - p.myIndex]?.name || "ждём соперника"
-                  }`}
-            </span>
-          </div>
-          <button
-            className="mini-icon-button"
-            aria-label={
-              p.mode === "practice" ? "Расставить заново" : "Выйти из матча"
-            }
-            onClick={p.mode === "practice" ? p.onRestart : p.onBack}
-          >
-            {p.mode === "practice" ? (
-              <RotateCcw size={19} />
-            ) : (
-              <Flag size={19} />
-            )}
-          </button>
-        </header>
-        {pocketed.length > 0 && (
-          <div className="mini-pocketed">
-            {pocketed.slice(-9).map((b) => (
-              <BallIcon key={b.id} n={b.id} small />
-            ))}
-          </div>
-        )}
+      <div className={`mini-app mini-app-game${rotated ? " is-rotated" : ""}`}>
         <div className="mini-stage">
           <Table
             gameRef={p.gameRef}
             angleRef={p.angleRef}
             onAim={p.onAim}
+            onCharge={setCharge}
+            onShoot={p.onShoot}
             canAim={p.canAim && !p.isWaiting}
             power={p.power}
             resetKey={p.resetKey}
             strokeRef={p.strokeRef}
-            portraitFit
           />
+          <header className="mini-bar">
+            <button
+              className="mini-icon-button"
+              aria-label="Назад в меню"
+              onClick={p.onBack}
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div className="mini-status">
+              <strong className={myTurn && !g.moving ? "is-turn" : ""}>
+                {status}
+              </strong>
+              <span>
+                {p.mode === "practice"
+                  ? group
+                  : `${p.players[p.myIndex]?.name || "Ты"} · ${
+                      p.players[1 - p.myIndex]?.name || "ждём соперника"
+                    }`}
+              </span>
+            </div>
+            {pocketed.length > 0 && (
+              <div className="mini-pocketed">
+                {pocketed.slice(-7).map((b) => (
+                  <BallIcon key={b.id} n={b.id} small />
+                ))}
+              </div>
+            )}
+            <button
+              className="mini-icon-button"
+              aria-label={
+                p.mode === "practice" ? "Расставить заново" : "Выйти из матча"
+              }
+              onClick={p.mode === "practice" ? p.onRestart : p.onBack}
+            >
+              {p.mode === "practice" ? (
+                <RotateCcw size={19} />
+              ) : (
+                <Flag size={19} />
+              )}
+            </button>
+          </header>
+          {charge !== null && (
+            <div className="mini-charge">
+              <div className="mini-charge-track">
+                <i style={{ height: `${Math.round(charge * 100)}%` }} />
+              </div>
+              <span>
+                {Math.round(charge * 100)}%
+                <small>{shotSpeedMps(charge).toFixed(1)} м/с</small>
+              </span>
+            </div>
+          )}
           {g.winner === null && !p.isWaiting && (
             <div className="mini-hint">
               <Crosshair size={12} />
               {g.moving
                 ? "Шары катятся"
-                : g.shots > 0
-                  ? g.message
-                  : myTurn
-                    ? "Проведи пальцем по столу"
-                    : "Соперник целится"}
+                : !myTurn
+                  ? "Соперник целится"
+                  : g.shots > 0
+                    ? g.message
+                    : "Оттяни кий назад и отпусти — это удар"}
             </div>
           )}
           {p.isWaiting && (
@@ -177,48 +194,6 @@ export default function MiniApp(p: MiniProps) {
               </button>
             </div>
           )}
-        </div>
-        <div className="mini-controls">
-          <div className="mini-power">
-            <label htmlFor="mini-power">
-              Сила
-              <span>
-                {Math.round(p.power * 100)}% ·{" "}
-                {shotSpeedMps(p.power).toFixed(1)} м/с
-              </span>
-            </label>
-            <input
-              id="mini-power"
-              type="range"
-              min="5"
-              max="100"
-              disabled={p.preparing}
-              aria-label="Сила удара"
-              value={Math.round(p.power * 100)}
-              onChange={(e) => p.setPower(Number(e.target.value) / 100)}
-              style={
-                { "--progress": `${p.power * 100}%` } as React.CSSProperties
-              }
-            />
-          </div>
-          <button
-            className="mini-hit"
-            onClick={p.onHit}
-            disabled={
-              !p.canAim ||
-              p.isWaiting ||
-              g.moving ||
-              p.preparing ||
-              g.winner !== null
-            }
-          >
-            {g.moving || p.preparing ? (
-              <LoaderCircle className="spin" size={18} />
-            ) : (
-              <Crosshair size={18} />
-            )}
-            Удар
-          </button>
         </div>
       </div>
     );
@@ -342,4 +317,25 @@ export default function MiniApp(p: MiniProps) {
       </nav>
     </div>
   );
+}
+
+/** True while a landscape-only screen has to be rotated inside a portrait phone. */
+function useLandscapeFrame(active: boolean) {
+  const [rotated, setRotated] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRotated(false);
+      return;
+    }
+    const sync = () =>
+      setRotated(window.innerHeight > window.innerWidth * 1.08);
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("orientationchange", sync);
+    };
+  }, [active]);
+  return rotated;
 }
