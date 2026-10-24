@@ -102,7 +102,7 @@ test("practice-only build: no server, no failed connections, balls come to rest"
   await page.getByRole("button", { name: "Вид сверху" }).click();
   await expect(page.getByRole("button", { name: "Вид сбоку" })).toBeVisible();
   // The scoreboard counts every ball still on the table, with no captions.
-  await expect(page.locator(".mini-score .mini-dots i")).toHaveCount(15);
+  await expect(page.locator(".mini-score .mini-ball")).toHaveCount(15);
   // Pulling the side cue back charges the power, releasing it shoots.
   await pullCue(page, 80);
   await expect(page.getByText("Шары в движении")).toBeVisible();

@@ -179,10 +179,10 @@ export default function Table({
     tip.position.x = -RADIUS - 0.0325;
     stick.add(tip);
     scene.add(cue);
-    // The guides every pool app draws: a line out of the cue ball to the
-    // circle where it will touch the object ball, and a second line showing
-    // where that object ball leaves. Painted as thin strips of cloth instead
-    // of GL lines, because a GL line is always one pixel wide.
+    // Aim marks, kept deliberately short so the cloth stays clean: a stub
+    // leaving the cue ball, a stub arriving at the contact point, the ghost
+    // circle itself and a short line out of the object ball. Painted as thin
+    // strips of cloth instead of GL lines, because a GL line is one pixel wide.
     const stripeGeometry = new THREE.PlaneGeometry(1, 1);
     const stripe = (opacity: number) => {
       const m = new THREE.Mesh(
@@ -200,9 +200,12 @@ export default function Table({
       scene.add(m);
       return m;
     };
-    const aim = stripe(0.9),
-      target = stripe(0.62);
+    const nearGuide = stripe(0.92),
+      farGuide = stripe(0.82),
+      target = stripe(0.66);
     const GUIDE_Y = 0.075;
+    /** Length of one aim stub, in table units (~2.5 ball diameters). */
+    const STUB = 0.6;
     const setLine = (
       l: THREE.Mesh,
       x1: number,
@@ -473,8 +476,9 @@ export default function Table({
         lastPower = flags.current.power;
         lastVisible = visible;
       }
-      cue.visible = aim.visible = ghost.visible = visible;
-      if (!visible) target.visible = false;
+      cue.visible = ghost.visible = visible;
+      if (!visible)
+        target.visible = nearGuide.visible = farGuide.visible = false;
       if (!visible && renderer.domElement.dataset.grip)
         delete renderer.domElement.dataset.grip;
       if (strokeRef.current) {
@@ -527,11 +531,32 @@ export default function Table({
             break;
           }
         }
-        // Cue ball to the contact point, then the circle it will stop in.
+        // The circle where the cue ball stops, with a short stub at each end
+        // of the path: one leaving the cue ball, one arriving at the circle.
         const gx = b.x + dx * dist,
           gz = b.y + dz * dist;
-        setLine(aim, b.x + dx * RADIUS, b.y + dz * RADIUS, gx, gz, 0.036);
         ghost.position.set(gx, GUIDE_Y, gz);
+        const span = dist - RADIUS * 2,
+          stub = Math.min(STUB, span * 0.42);
+        nearGuide.visible = farGuide.visible = visible && stub > 0.03;
+        if (stub > 0.03) {
+          setLine(
+            nearGuide,
+            b.x + dx * RADIUS,
+            b.y + dz * RADIUS,
+            b.x + dx * (RADIUS + stub),
+            b.y + dz * (RADIUS + stub),
+            0.034,
+          );
+          setLine(
+            farGuide,
+            gx - dx * (RADIUS + stub),
+            gz - dz * (RADIUS + stub),
+            gx - dx * RADIUS,
+            gz - dz * RADIUS,
+            0.034,
+          );
+        }
         // Where the object ball leaves the collision: centre to centre.
         if (hit) {
           const ox = hit.x - gx,
@@ -539,10 +564,10 @@ export default function Table({
             len = Math.hypot(ox, oz) || 1;
           setLine(
             target,
-            hit.x,
-            hit.y,
-            hit.x + (ox / len) * 1.25,
-            hit.y + (oz / len) * 1.25,
+            hit.x + (ox / len) * RADIUS,
+            hit.y + (oz / len) * RADIUS,
+            hit.x + (ox / len) * 0.78,
+            hit.y + (oz / len) * 0.78,
             0.03,
           );
         }

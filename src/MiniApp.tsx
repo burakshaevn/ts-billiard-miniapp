@@ -10,6 +10,7 @@ import {
   Flag,
   Gamepad2,
   History,
+  Orbit,
   LoaderCircle,
   RotateCcw,
   Trophy,
@@ -69,6 +70,9 @@ export type MiniProps = {
   onProfile: () => void;
   onToggleSound: () => void;
   onBack: () => void;
+  /** Another game with the same opponent: who has asked so far. */
+  rematch: "none" | "sent" | "offered";
+  onRematch: () => void;
   onRestart: () => void;
   onCancelSearch: () => void;
   onCopyInvite: () => void;
@@ -82,14 +86,13 @@ export default function MiniApp(p: MiniProps) {
   // Online is a placeholder until a game server is connected to the build.
   const soon = p.onlineAvailable === false;
   const myTurn = p.mode === "practice" || (p.canAim && !p.isWaiting);
-  const group =
+  // Screen readers get the scoreboard as one sentence instead of 15 shapes.
+  const scoreLabel =
     p.mode === "practice"
-      ? "Свободная игра"
-      : g.groups[p.myIndex] === "solids"
-        ? "Твои — сплошные"
-        : g.groups[p.myIndex] === "stripes"
-          ? "Твои — полосатые"
-          : "Стол открыт";
+      ? `На столе ${left([...SOLIDS, 8, ...STRIPES], g)} из 15 шаров`
+      : g.groups[p.myIndex]
+        ? `Твои — ${g.groups[p.myIndex] === "solids" ? "сплошные" : "полосатые"}, осталось ${left(groupBalls(g.groups[p.myIndex]), g)}; у соперника ${left(groupBalls(g.groups[1 - p.myIndex]), g)}`
+        : "Стол открыт: группы ещё не определены";
   const status = g.moving
     ? "Шары в движении"
     : p.mode === "practice"
@@ -112,10 +115,12 @@ export default function MiniApp(p: MiniProps) {
             resetKey={p.resetKey}
             strokeRef={p.strokeRef}
           />
-          <div className="mini-score">
+          <div className="mini-score" role="img" aria-label={scoreLabel}>
             {p.mode === "practice" ? (
               <div className="mini-team">
-                <Dots ids={[...SOLIDS, 8, ...STRIPES]} game={g} />
+                <Balls ids={SOLIDS} game={g} />
+                <Balls ids={[8]} game={g} />
+                <Balls ids={STRIPES} game={g} />
               </div>
             ) : (
               <>
@@ -125,19 +130,20 @@ export default function MiniApp(p: MiniProps) {
                   <span className="mini-team-name">
                     {p.players[p.myIndex]?.name || "Ты"}
                   </span>
-                  <Dots
+                  <Balls
                     ids={groupBalls(g.groups[p.myIndex])}
                     game={g}
-                    muted={!g.groups[p.myIndex]}
+                    unknown={!g.groups[p.myIndex]}
                   />
                 </div>
+                <Balls ids={[8]} game={g} />
                 <div
                   className={`mini-team is-right${!myTurn && !g.moving ? " is-active" : ""}`}
                 >
-                  <Dots
+                  <Balls
                     ids={groupBalls(g.groups[1 - p.myIndex])}
                     game={g}
-                    muted={!g.groups[1 - p.myIndex]}
+                    unknown={!g.groups[1 - p.myIndex]}
                   />
                   <span className="mini-team-name">
                     {p.players[1 - p.myIndex]?.name || "Соперник"}
@@ -179,10 +185,9 @@ export default function MiniApp(p: MiniProps) {
             <button
               className="mini-icon-button"
               aria-label={p.view === "top" ? "Вид сбоку" : "Вид сверху"}
-              aria-pressed={p.view === "top"}
               onClick={p.onToggleView}
             >
-              <Eye size={19} />
+              {p.view === "top" ? <Orbit size={19} /> : <Eye size={19} />}
             </button>
             <button
               className="mini-icon-button"
@@ -213,14 +218,29 @@ export default function MiniApp(p: MiniProps) {
                   ? "Победа!"
                   : "Поражение"}
               </h3>
-              <p>{g.message}</p>
+              <p>
+                {g.message}
+                {p.mode !== "practice" && p.rematch === "offered"
+                  ? " Соперник предлагает сыграть ещё."
+                  : ""}
+              </p>
               <button
                 className="mini-primary"
-                onClick={p.mode === "practice" ? p.onRestart : p.onBack}
+                disabled={p.rematch === "sent"}
+                onClick={p.mode === "practice" ? p.onRestart : p.onRematch}
               >
-                {p.mode === "practice" ? "Ещё партию" : "В меню"}
+                {p.mode === "practice"
+                  ? "Ещё партию"
+                  : p.rematch === "sent"
+                    ? "Ждём соперника…"
+                    : "Сыграть ещё"}
                 <ArrowRight size={17} />
               </button>
+              {p.mode !== "practice" && (
+                <button className="mini-text-button" onClick={p.onBack}>
+                  В меню
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -350,43 +370,41 @@ export default function MiniApp(p: MiniProps) {
 
 const SOLIDS = [1, 2, 3, 4, 5, 6, 7];
 const STRIPES = [9, 10, 11, 12, 13, 14, 15];
-/** The balls a player still has to clear, with the 8 as the last one. */
+/** The balls a player still has to clear. The 8 is shown separately. */
 function groupBalls(group: "solids" | "stripes" | null) {
-  return [...(group === "stripes" ? STRIPES : SOLIDS), 8];
+  return group === "stripes" ? STRIPES : SOLIDS;
 }
+const left = (ids: number[], game: Game) =>
+  ids.filter((id) => !game.balls.find((b) => b.id === id)?.pocketed).length;
 /**
- * The scoreboard every pool app has: one dot per ball, in ball colours,
- * dimmed as they drop. No words — the colours say everything.
+ * The scoreboard every pool app has: the balls themselves, in their own
+ * colours and numbers, hollow once they drop. No words needed.
  */
-function Dots({
+function Balls({
   ids,
   game,
-  muted = false,
+  unknown = false,
 }: {
   ids: number[];
   game: Game;
-  muted?: boolean;
+  /** Groups are not decided yet: show blanks instead of guessing a side. */
+  unknown?: boolean;
 }) {
-  // The 8 only lights up once the player's own group is gone.
-  const locked = ids.some(
-    (id) => id !== 8 && !game.balls.find((b) => b.id === id)?.pocketed,
-  );
   return (
-    <span className="mini-dots">
-      {ids.map((id) => {
+    <span className="mini-balls">
+      {ids.map((id, i) => {
         const gone = !!game.balls.find((b) => b.id === id)?.pocketed;
+        if (unknown) return <span key={i} className="mini-ball is-unknown" />;
         return (
-          <i
+          <span
             key={id}
-            className={`${gone ? "is-gone" : ""}${id > 8 ? " is-striped" : ""}${
-              id === 8 && locked ? " is-locked" : ""
+            className={`mini-ball${gone ? " is-gone" : ""}${
+              id > 8 ? " is-striped" : ""
             }`}
-            style={
-              {
-                "--dot": muted ? "#64707f" : BALL_COLORS[id],
-              } as React.CSSProperties
-            }
-          />
+            style={{ "--ball": BALL_COLORS[id] } as React.CSSProperties}
+          >
+            {!gone && <b>{id}</b>}
+          </span>
         );
       })}
     </span>

@@ -15,6 +15,8 @@ type Client = {
   room?: string;
   alive: boolean;
   lastAction: number;
+  /** Asked for another game after the current one ended. */
+  rematch?: boolean;
 };
 type Room = {
   code: string;
@@ -49,6 +51,7 @@ function leave(c: Client) {
   // deleting the room afterwards used to delete the key `undefined` and left
   // the abandoned room in the map, joinable by the next player.
   const code = c.room;
+  delete c.rematch;
   if (!code) return;
   delete c.room;
   const r = rooms.get(code);
@@ -72,7 +75,10 @@ function newRoom(players: Client[], isPrivate: boolean) {
     created: Date.now(),
   };
   rooms.set(code, room);
-  players.forEach((c) => (c.room = code));
+  players.forEach((c) => {
+    c.room = code;
+    delete c.rematch;
+  });
   state(room);
   return room;
 }
@@ -147,6 +153,22 @@ wss.on("connection", (ws) => {
         room.players.push(c);
         c.room = room.code;
         state(room);
+        return;
+      }
+      // Another game with the same opponent: both sides have to ask for it.
+      if (m.type === "rematch" && c.room) {
+        const room = rooms.get(c.room);
+        if (!room || room.players.length !== 2 || room.game.winner === null)
+          return;
+        c.rematch = true;
+        if (room.players.every((p) => p.rematch)) {
+          room.players.forEach((p) => delete p.rematch);
+          room.game = createGame();
+          state(room);
+        } else
+          room.players.forEach((p) =>
+            send(p, { type: p === c ? "rematch_sent" : "rematch_offer" }),
+          );
         return;
       }
       if (m.type === "shoot" && c.room) {

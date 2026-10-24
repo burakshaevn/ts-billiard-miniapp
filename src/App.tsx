@@ -53,6 +53,14 @@ type Modal = "rules" | "friends" | "history" | "profile" | "leave" | null;
 /** Phones in both orientations get the Mini App layout; wide desktops keep the club page. */
 const COMPACT_QUERY =
   "(max-width:760px),(max-height:520px) and (max-width:1100px)";
+/** Russian plural: 1 удар, 2 удара, 5 ударов. */
+function plural(n: number, one: string, few: string, many: string) {
+  const mod10 = n % 10,
+    mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
 function load<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
@@ -113,6 +121,8 @@ function App() {
     [records, setRecords] = useState<Match[]>(() => load("luza-matches", []));
   const [inviteCopied, setInviteCopied] = useState(false),
     [busy, setBusy] = useState(false);
+  // Another game with the same opponent: "sent" = we asked, "offered" = they did.
+  const [rematch, setRematch] = useState<"none" | "sent" | "offered">("none");
   const gameRef = useRef<Game>(createGame(true)),
     angleRef = useRef(-0.24),
     socket = useRef<WebSocket | null>(null),
@@ -192,6 +202,7 @@ function App() {
     roomSizeRef.current = 0;
     gameRef.current = createGame(true);
     angleRef.current = -0.24;
+    setRematch("none");
     setMode("practice");
     setPlayers([]);
     setCode("");
@@ -202,7 +213,11 @@ function App() {
   }
   /** Compact layout: leave the table and go back to the Mini App menu. */
   function leaveTable() {
-    if (modeRef.current === "online" && roomSizeRef.current === 2)
+    if (
+      modeRef.current === "online" &&
+      roomSizeRef.current === 2 &&
+      gameRef.current.winner === null
+    )
       return setModal("leave");
     if (modeRef.current === "practice") {
       cancelStroke();
@@ -244,6 +259,10 @@ function App() {
     setBusy(true);
     send({ type: "queue" });
     setSearchSeconds(0);
+  }
+  function askRematch() {
+    if (!send({ type: "rematch" })) return;
+    setRematch("sent");
   }
   function toggleView() {
     setView((v) => {
@@ -305,6 +324,18 @@ function App() {
       if (strokeTimer.current !== null) clearTimeout(strokeTimer.current);
     };
   }, []);
+  // The phone screen has no message line, so the one thing a player cannot
+  // guess — why the turn went away — is announced once, briefly.
+  const lastShot = useRef(0);
+  useEffect(() => {
+    const game = gameRef.current;
+    if (game.moving || game.shots === lastShot.current) return;
+    const first = lastShot.current === 0;
+    lastShot.current = game.shots;
+    if (first || !game.foul || game.winner !== null) return;
+    if (modeRef.current !== "practice" || game.shotPocketed.includes(0))
+      notify(game.message);
+  }, [tick]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4200);
@@ -313,6 +344,13 @@ function App() {
   useEffect(() => {
     save("luza-sound", sound);
   }, [sound]);
+  // The game screen carries no captions on purpose. New players still have to
+  // learn the two gestures once, so the first table shows them briefly.
+  useEffect(() => {
+    if (!compact || screen !== "game" || load("luza-hint", false)) return;
+    save("luza-hint", true);
+    notify("Проведи по сукну — повернётся кий. Оттяни кий справа и отпусти.");
+  }, [compact, screen]);
   useEffect(() => {
     if (!modal && !expanded) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -378,6 +416,8 @@ function App() {
           return;
         }
         if (m.type === "population") setPopulation(m.count);
+        if (m.type === "rematch_sent") setRematch("sent");
+        if (m.type === "rematch_offer") setRematch("offered");
         if (m.type === "waiting") {
           setMode("searching");
           setBusy(false);
@@ -385,6 +425,9 @@ function App() {
         if (m.type === "state") {
           if (closedRoomsRef.current.has(m.code)) return;
           const wasSolo = gameRef.current.solo;
+          // A rematch keeps the room but rewinds the shot counter.
+          const restarted =
+            m.game.shots === 0 && gameRef.current.shots > 0 && !wasSolo;
           const newRoom = currentRoomRef.current !== m.code;
           const joined = roomSizeRef.current !== m.players.length;
           currentRoomRef.current = m.code;
@@ -404,9 +447,11 @@ function App() {
                 setExpanded(true);
             }
           }
-          if (wasSolo || newRoom) {
+          if (wasSolo || newRoom || restarted) {
             setResetKey((k) => k + 1);
             savedWinner.current = false;
+            setRematch("none");
+            cancelStroke();
           }
           setTick((t) => t + 1);
         }
@@ -498,8 +543,8 @@ function App() {
       tg.ready();
       tg.expand();
       setCompact(true);
-      tg.setHeaderColor?.("#101715");
-      tg.setBackgroundColor?.("#101715");
+      tg.setHeaderColor?.("#0d1210");
+      tg.setBackgroundColor?.("#0d1210");
       syncTelegramControls();
       const syncViewport = () => {
         const style = document.documentElement.style;
@@ -694,8 +739,9 @@ function App() {
                   <div>
                     <h3>Прицелься и ударь</h3>
                     <p>
-                      Наведи курсор или проведи пальцем по столу. Пунктир
-                      покажет направление битка. Выбери силу и нажми «Ударить».
+                      {compact
+                        ? "Проведи пальцем по сукну — кий повернётся. Белый кружок показывает, где биток встретит шар. Потом оттяни кий сбоку и отпусти: чем дальше оттянул, тем сильнее удар."
+                        : "Проведи мышью по столу — кий повернётся. Белый кружок показывает, где биток встретит шар. Выбери силу и нажми «Ударить»."}
                     </p>
                   </div>
                 </div>
@@ -836,7 +882,10 @@ function App() {
                     </p>
                     <button
                       className="primary-button"
-                      onClick={() => setModal(null)}
+                      onClick={() => {
+                        setModal(null);
+                        if (compact) startPractice();
+                      }}
                     >
                       Пора играть <ArrowRight size={18} />
                     </button>
@@ -853,7 +902,8 @@ function App() {
                         <div>
                           <strong>{r.result}</strong>
                           <span>
-                            {r.opponent} · {r.shots} ударов
+                            {r.opponent} · {r.shots}{" "}
+                            {plural(r.shots, "удар", "удара", "ударов")}
                           </span>
                         </div>
                         <time>
@@ -884,7 +934,8 @@ function App() {
                     const next = draftName.trim() || "Гость";
                     setName(next);
                     save("luza-name", next);
-                    send({ type: "hello", name: next });
+                    if (socket.current?.readyState === WebSocket.OPEN)
+                      send({ type: "hello", name: next });
                     setModal(null);
                     notify("Имя сохранено. Приятной игры!");
                   }}
@@ -990,6 +1041,8 @@ function App() {
           }}
           onToggleSound={() => setSound((v) => !v)}
           onBack={leaveTable}
+          rematch={rematch}
+          onRematch={askRematch}
           onRestart={() => resetPractice()}
           onCancelSearch={exitToPractice}
           onCopyInvite={copyInvite}
@@ -1099,7 +1152,7 @@ function App() {
             <span className="online-badge">
               <i />
               {connected
-                ? `${population} ${population % 10 === 1 && population % 100 !== 11 ? "игрок" : population % 10 >= 2 && population % 10 <= 4 && (population % 100 < 12 || population % 100 > 14) ? "игрока" : "игроков"} в клубе`
+                ? `${population} ${plural(population, "игрок", "игрока", "игроков")} в клубе`
                 : "Офлайн-тренировка"}
             </span>
             <span className="top-divider" />
@@ -1250,17 +1303,34 @@ function App() {
                           ? "Красивая победа!"
                           : "Ещё один раунд?"}
                       </h3>
-                      <p>{g.message}</p>
+                      <p>
+                        {g.message}
+                        {mode !== "practice" && rematch === "offered"
+                          ? " Соперник предлагает сыграть ещё."
+                          : ""}
+                      </p>
                       <button
                         className="primary-button"
+                        disabled={rematch === "sent"}
                         onClick={() =>
-                          mode === "practice"
-                            ? resetPractice()
-                            : exitToPractice()
+                          mode === "practice" ? resetPractice() : askRematch()
                         }
                       >
-                        Вернуться за стол <ArrowRight size={18} />
+                        {mode === "practice"
+                          ? "Вернуться за стол"
+                          : rematch === "sent"
+                            ? "Ждём соперника…"
+                            : "Сыграть ещё"}
+                        <ArrowRight size={18} />
                       </button>
+                      {mode !== "practice" && (
+                        <button
+                          className="text-button"
+                          onClick={exitToPractice}
+                        >
+                          Выйти из матча
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

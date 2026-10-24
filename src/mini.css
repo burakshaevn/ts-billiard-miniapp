@@ -379,7 +379,9 @@ body.mini-mode {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
   max-width: calc(100% - 190px);
   pointer-events: none;
 }
@@ -406,29 +408,59 @@ body.mini-mode {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mini-dots {
+.mini-balls {
   display: flex;
   gap: 3px;
 }
-.mini-dots i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--dot);
+/* The 8 belongs to both players, so online it sits on its own between them. */
+.mini-score > .mini-balls {
+  padding: 4px;
+  border-radius: 999px;
+  background: #0b0d12a8;
+  box-shadow: inset 0 0 0 1px #ffffff12;
 }
-.mini-dots i.is-striped {
+/* Real balls, not abstract dots: same colours and numbers as on the cloth. */
+.mini-ball {
+  position: relative;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ball, #5a6672);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.mini-ball.is-striped {
   background: linear-gradient(
     180deg,
-    #f4f1e6 0 26%,
-    var(--dot) 26% 74%,
-    #f4f1e6 74%
+    #f1ede1 0 23%,
+    var(--ball) 23% 77%,
+    #f1ede1 77%
   );
 }
-.mini-dots i.is-gone {
-  background: #ffffff1a;
+.mini-ball b {
+  display: grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #f4f1e8;
+  color: #1b1f22;
+  font:
+    700 8px/1 Arial,
+    Helvetica,
+    sans-serif;
 }
-.mini-dots i.is-locked {
-  opacity: 0.35;
+/* Potted: the slot stays so the two sides keep lining up. */
+.mini-ball.is-gone {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px #ffffff2e;
+}
+.mini-ball.is-unknown {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px #ffffff2e;
+  opacity: 0.75;
 }
 /* Messages float over the table inside the rotated frame, so they read the
    right way up and never sit on top of the cue. */
@@ -534,7 +566,7 @@ body.mini-mode {
   gap: 10px;
   padding: 20px;
   text-align: center;
-  background: #0b100ecc;
+  background: #080a0dd1;
   backdrop-filter: blur(3px);
   z-index: 3;
 }
@@ -544,13 +576,25 @@ body.mini-mode {
 }
 .mini-overlay p {
   font-size: 12.5px;
-  color: #b3c0a8;
+  color: #aab4c2;
   max-width: 280px;
   line-height: 1.5;
 }
 .mini-overlay .spin,
 .mini-overlay .winner-icon {
   color: var(--lime);
+}
+.mini-app-game .mini-overlay .spin,
+.mini-app-game .mini-overlay .winner-icon {
+  color: #7cc6f5;
+}
+.mini-app-game .mini-primary {
+  color: #06131d;
+  background: linear-gradient(180deg, #9ad6fb, #5aa8e0);
+}
+.mini-app-game .mini-text-button {
+  margin-top: 6px;
+  color: #93a0b2;
 }
 .mini-primary {
   display: inline-flex;
