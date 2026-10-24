@@ -573,6 +573,16 @@ function App() {
     frame = requestAnimationFrame(run);
     return () => cancelAnimationFrame(frame);
   }, []);
+  // A queue/create/join request can be ignored by the server (throttling, a
+  // lost frame). Never leave the button spinning forever because of that.
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setTimeout(() => {
+      setBusy(false);
+      notify("Сервер не ответил на действие. Попробуй ещё раз.");
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [busy]);
   useEffect(() => {
     if (!isWaiting) return;
     const t = setInterval(() => setSearchSeconds((s) => s + 1), 1000);

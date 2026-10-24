@@ -146,3 +146,36 @@ test("queue can be cancelled without leaving a ghost opponent", async () => {
   a.ws.close();
   b.ws.close();
 });
+
+test("an immediate cancel is honoured even inside the action throttle window", async () => {
+  const a = await peer("Быстрый"),
+    b = await peer("Следующий"),
+    c = await peer("Создатель"),
+    d = await peer("Гость");
+  // Queue and cancel inside the 100 ms throttle window: the client must not
+  // stay in the queue, otherwise the next player meets a ghost opponent.
+  a.send({ type: "queue" });
+  await a.wait((m) => m.type === "waiting");
+  a.send({ type: "leave" });
+  await a.wait((m) => m.type === "left");
+  b.send({ type: "queue" });
+  await b.wait((m) => m.type === "waiting");
+  assert.equal(
+    b.messages.some((m) => m.type === "state"),
+    false,
+    "cancelled player was matched anyway",
+  );
+  assert.equal(
+    a.messages.some((m) => m.type === "state"),
+    false,
+  );
+  // Same for a private room abandoned right after it was created.
+  c.send({ type: "create" });
+  const room = await c.wait((m) => m.type === "state");
+  c.send({ type: "leave" });
+  await c.wait((m) => m.type === "left");
+  d.send({ type: "join", code: room.code });
+  const error = await d.wait((m) => m.type === "error");
+  assert.match(error.message, /не найдена|занята/i);
+  [a, b, c, d].forEach((p) => p.ws.close());
+});

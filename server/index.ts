@@ -45,17 +45,19 @@ function state(r: Room) {
 }
 function leave(c: Client) {
   queue = queue.filter((p) => p.id !== c.id);
-  if (c.room) {
-    const r = rooms.get(c.room);
-    if (r) {
-      r.players.forEach((p) => {
-        delete p.room;
-        if (p !== c) send(p, { type: "opponent_left" });
-      });
-      rooms.delete(c.room);
-    }
-    delete c.room;
-  }
+  // Read the code before clearing it: the loop below also clears c.room, so
+  // deleting the room afterwards used to delete the key `undefined` and left
+  // the abandoned room in the map, joinable by the next player.
+  const code = c.room;
+  if (!code) return;
+  delete c.room;
+  const r = rooms.get(code);
+  if (!r) return;
+  rooms.delete(code);
+  r.players.forEach((p) => {
+    delete p.room;
+    if (p !== c) send(p, { type: "opponent_left" });
+  });
 }
 function newRoom(players: Client[], isPrivate: boolean) {
   let code: string;
@@ -99,13 +101,17 @@ wss.on("connection", (ws) => {
             : "Игрок";
         return;
       }
-      if (Date.now() - c.lastAction < 100) return;
-      c.lastAction = Date.now();
+      // Leaving is never throttled and never counts as a throttled action: a
+      // dropped cancel would keep this client in the queue or in a room, and
+      // the next player could be matched with an opponent who already left.
+      // Repeated leaves are cheap because an idle client exits immediately.
       if (m.type === "leave") {
-        leave(c);
+        if (c.room || queue.some((p) => p.id === c.id)) leave(c);
         send(c, { type: "left" });
         return;
       }
+      if (Date.now() - c.lastAction < 100) return;
+      c.lastAction = Date.now();
       if (m.type === "queue") {
         leave(c);
         queue = queue.filter((p) => p.ws.readyState === WebSocket.OPEN);
