@@ -1,0 +1,515 @@
+/* Compact single-screen layout for the Telegram Mini App and phone browsers:
+   a short menu, then nothing but the table and the shot controls. */
+body.mini-mode {
+  min-width: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #0d1210;
+}
+.mini-app {
+  position: fixed;
+  inset: 0;
+  height: var(--app-viewport-height, 100dvh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: manipulation;
+  background:
+    radial-gradient(90% 60% at 50% 0%, #1b2a20 0%, transparent 70%), #0d1210;
+  padding: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px))
+    max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px))
+    max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom, 0px))
+    max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+}
+.mini-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-height: 48px;
+}
+.mini-icon-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 11px;
+  color: #c8d5bb;
+  background: #1a221c;
+  border: 1px solid #2b342c;
+}
+.mini-icon-button:active {
+  background: #222c23;
+}
+.mini-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  color: #eef1e9;
+}
+.mini-brand-ball {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #39423c, #14191b 70%);
+  color: #f3f6ec;
+  font-size: 11px;
+  font-weight: 700;
+}
+.mini-online {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mini-online i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4d5a4f;
+}
+.mini-online.live i {
+  background: var(--lime);
+  box-shadow: 0 0 0 3px #d2ed8926;
+}
+/* Lobby */
+.mini-hero {
+  flex: 0 1 auto;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  text-align: center;
+}
+.mini-hero .ball-icon {
+  width: 52px;
+  height: 52px;
+  font-size: 17px;
+}
+.mini-hero h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.mini-hero p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.mini-menu {
+  margin-bottom: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px;
+}
+.mini-choice {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: 16px;
+  border: 1px solid #2c362e;
+  background: linear-gradient(180deg, #1a231d, #161d19);
+  color: #e7ece0;
+}
+.mini-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.mini-choice strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.mini-choice small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.mini-choice svg:first-child {
+  color: var(--green);
+}
+.mini-choice.primary {
+  border-color: #65813f;
+  background: linear-gradient(180deg, #d2ed89, #b6d472);
+  color: #16200f;
+}
+.mini-choice.primary small {
+  color: #2f4019;
+}
+.mini-choice.primary svg {
+  color: #1d2a12;
+}
+.mini-choice:active {
+  transform: translateY(1px);
+}
+.mini-choice.muted {
+  opacity: 0.72;
+}
+.mini-soon {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #3c4a36;
+  background: #1c241d;
+  color: #93a585;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mini-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  padding: 2px 4px;
+}
+.mini-searching {
+  margin-bottom: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  margin: 0 14px;
+  padding: 22px 16px;
+  border-radius: 18px;
+  border: 1px solid #2c362e;
+  background: #161d19;
+  text-align: center;
+}
+.mini-searching strong {
+  font-size: 16px;
+}
+.mini-searching span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.mini-searching .spin {
+  color: var(--lime);
+}
+.mini-code,
+.mini-room-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 15px;
+  border-radius: 11px;
+  border: 1px dashed #4d6039;
+  background: #1b2419;
+  color: var(--lime);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+}
+.mini-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #9fae93;
+}
+.mini-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid #222a23;
+}
+.mini-tabs button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  font-size: 10.5px;
+  color: #9aa894;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-tabs button:active {
+  background: #19211b;
+}
+/* Game screen */
+.mini-app-game .mini-bar {
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 44px;
+}
+.mini-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+.mini-status strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e3e9da;
+}
+.mini-status strong.is-turn {
+  color: var(--lime);
+}
+.mini-status span {
+  font-size: 10.5px;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-pocketed {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 10px 4px;
+  min-height: 20px;
+}
+.mini-pocketed .ball-icon.small {
+  width: 17px;
+  height: 17px;
+  font-size: 8px;
+}
+.mini-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.mini-stage .table-canvas {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  height: 100%;
+}
+.mini-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #0f1512cc;
+  border: 1px solid #263028;
+  color: #b9c7ad;
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.mini-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  background: #0b100ecc;
+  backdrop-filter: blur(3px);
+  z-index: 3;
+}
+.mini-overlay h3 {
+  font-size: 19px;
+  font-weight: 700;
+}
+.mini-overlay p {
+  font-size: 12.5px;
+  color: #b3c0a8;
+  max-width: 280px;
+  line-height: 1.5;
+}
+.mini-overlay .spin,
+.mini-overlay .winner-icon {
+  color: var(--lime);
+}
+.mini-primary,
+.mini-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 22px;
+  border-radius: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #16200f;
+  background: linear-gradient(180deg, #d9f294, #b2d06c);
+}
+.mini-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #222a23;
+  background: #111714;
+}
+.mini-power {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mini-power label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: #9fae93;
+}
+.mini-power label span {
+  color: var(--lime);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mini-power input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: none;
+}
+.mini-power input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--lime) var(--progress, 50%),
+    #27302a var(--progress, 50%)
+  );
+}
+.mini-power input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--lime) var(--progress, 50%),
+    #27302a var(--progress, 50%)
+  );
+}
+.mini-power input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: #f2f7e6;
+  border: 3px solid #7f9b53;
+}
+.mini-power input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f2f7e6;
+  border: 3px solid #7f9b53;
+}
+.mini-hit {
+  flex: 0 0 auto;
+  min-width: 112px;
+  min-height: 52px;
+  font-size: 15px;
+}
+.mini-hit:disabled {
+  background: #232b24;
+  color: #7e8a78;
+}
+/* Short screens: keep everything on one page without scrolling. */
+@media (max-height: 640px) {
+  .mini-hero {
+    padding: 6px 20px 10px;
+    gap: 5px;
+  }
+  .mini-hero .ball-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+  .mini-hero h1 {
+    font-size: 18px;
+  }
+  .mini-choice {
+    min-height: 56px;
+  }
+}
+@media (min-width: 620px) {
+  .mini-app-lobby .mini-hero,
+  .mini-app-lobby .mini-menu,
+  .mini-app-lobby .mini-searching,
+  .mini-app-lobby .mini-tabs {
+    width: 100%;
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+/* Landscape phone: trim the chrome so the table still owns the screen. */
+@media (max-height: 460px) {
+  .mini-app-game .mini-bar {
+    padding: 4px 8px;
+    min-height: 36px;
+  }
+  .mini-app-game .mini-icon-button {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+    border-radius: 9px;
+  }
+  .mini-pocketed {
+    display: none;
+  }
+  .mini-controls {
+    padding: 6px 10px 8px;
+    gap: 10px;
+  }
+  .mini-hit {
+    min-height: 42px;
+    min-width: 96px;
+    font-size: 14px;
+  }
+  .mini-power label {
+    font-size: 10px;
+  }
+  .mini-power input[type="range"] {
+    height: 18px;
+  }
+  .mini-hint {
+    display: none;
+  }
+}
