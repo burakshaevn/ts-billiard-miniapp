@@ -120,6 +120,13 @@ export function inviteLink(code: string): string {
   return url.toString();
 }
 
+/**
+ * The Amazing Pool mark. `BASE_URL` keeps it working from the GitHub Pages
+ * subpath as well as from the dev server root.
+ */
+export const LOGO_URL = `${import.meta.env.BASE_URL}logo-160.png`;
+export const LOGO_LARGE_URL = `${import.meta.env.BASE_URL}logo-512.png`;
+
 export type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
@@ -153,7 +160,7 @@ export type TelegramWebApp = {
   };
   initDataUnsafe?: {
     start_param?: string;
-    user?: { first_name: string; last_name?: string };
+    user?: { first_name: string; last_name?: string; photo_url?: string };
   };
 };
 

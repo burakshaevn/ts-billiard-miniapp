@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
@@ -8,7 +7,6 @@ import {
   ChevronRight,
   CircleHelp,
   Copy,
-  Crosshair,
   Flag,
   Gamepad2,
   History,
@@ -22,7 +20,6 @@ import {
   RotateCcw,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Trophy,
   Users,
   Volume2,
@@ -30,9 +27,11 @@ import {
   X,
 } from "lucide-react";
 import Table from "./Table";
+import Avatar from "./Avatar";
 import BallIcon from "./BallIcon";
 import MiniApp from "./MiniApp";
 import {
+  LOGO_URL,
   inviteLink,
   isTelegramClient,
   resolveGameServer,
@@ -47,7 +46,7 @@ import {
 } from "../shared/game";
 import { STROKE_MS, type CueStroke } from "../shared/rendering";
 
-type Player = { id: string; name: string };
+type Player = { id: string; name: string; avatar?: string };
 type Match = { date: string; result: string; shots: number; opponent: string };
 type Modal = "rules" | "friends" | "history" | "profile" | "leave" | null;
 /** Phones in both orientations get the Mini App layout; wide desktops keep the club page. */
@@ -102,6 +101,8 @@ function App() {
     [myIndex, setMyIndex] = useState(0),
     [code, setCode] = useState(""),
     [joinCode, setJoinCode] = useState("");
+  // My own Telegram photo: drawn next to my name over the table.
+  const [avatar, setAvatar] = useState<string | undefined>(undefined);
   const [expanded, setExpanded] = useState(false);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
@@ -128,6 +129,7 @@ function App() {
     socket = useRef<WebSocket | null>(null),
     modeRef = useRef(mode),
     nameRef = useRef(name),
+    avatarRef = useRef<string | undefined>(undefined),
     savedWinner = useRef(false),
     closedRoomsRef = useRef(new Set<string>()),
     currentRoomRef = useRef(""),
@@ -344,13 +346,6 @@ function App() {
   useEffect(() => {
     save("luza-sound", sound);
   }, [sound]);
-  // The game screen carries no captions on purpose. New players still have to
-  // learn the two gestures once, so the first table shows them briefly.
-  useEffect(() => {
-    if (!compact || screen !== "game" || load("luza-hint", false)) return;
-    save("luza-hint", true);
-    notify("Проведи по сукну — повернётся кий. Оттяни кий справа и отпусти.");
-  }, [compact, screen]);
   useEffect(() => {
     if (!modal && !expanded) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -400,7 +395,13 @@ function App() {
       ws.onopen = () => {
         if (!alive) return;
         setConnected(true);
-        ws.send(JSON.stringify({ type: "hello", name: nameRef.current }));
+        ws.send(
+          JSON.stringify({
+            type: "hello",
+            name: nameRef.current,
+            avatar: avatarRef.current,
+          }),
+        );
         const room = startRoomCode();
         if (room) {
           ws.send(JSON.stringify({ type: "join", code: room }));
@@ -543,8 +544,8 @@ function App() {
       tg.ready();
       tg.expand();
       setCompact(true);
-      tg.setHeaderColor?.("#0d1210");
-      tg.setBackgroundColor?.("#0d1210");
+      tg.setHeaderColor?.("#0b0609");
+      tg.setBackgroundColor?.("#0b0609");
       syncTelegramControls();
       const syncViewport = () => {
         const style = document.documentElement.style;
@@ -575,8 +576,22 @@ function App() {
         setName(n);
         nameRef.current = n;
         save("luza-name", n);
+        // Telegram hands out the profile photo of the player; the opponent
+        // sees it over the table, so only a plain https link is forwarded.
+        const photo = user.photo_url;
+        avatarRef.current =
+          typeof photo === "string" && /^https:\/\//.test(photo)
+            ? photo.slice(0, 300)
+            : undefined;
+        setAvatar(avatarRef.current);
         if (socket.current?.readyState === WebSocket.OPEN)
-          socket.current.send(JSON.stringify({ type: "hello", name: n }));
+          socket.current.send(
+            JSON.stringify({
+              type: "hello",
+              name: n,
+              avatar: avatarRef.current,
+            }),
+          );
       }
     };
     let script: HTMLScriptElement | undefined;
@@ -1067,15 +1082,9 @@ function App() {
             changePage("play");
           }}
         >
-          <span className="brand-symbol">
-            <span>8</span>
-          </span>
-          <span>
-            луза<span className="brand-dot">.</span>
-            <small>БИЛЬЯРДНЫЙ КЛУБ</small>
-          </span>
+          <img className="brand-symbol" src={LOGO_URL} alt="" />
+          <span>Amazing Pool</span>
         </a>
-        <div className="nav-caption">ТВОЁ ПРОСТРАНСТВО</div>
         <nav>
           <button
             className={page === "play" ? "nav-item active" : "nav-item"}
@@ -1115,7 +1124,7 @@ function App() {
         <div className="sidebar-bottom">
           <div className="server-status">
             <i className={connected ? "live" : ""} />
-            {connected ? "Клуб открыт" : "Подключаемся…"}
+            {connected ? "Сервер на связи" : "Подключаемся…"}
             <span>v 0.1</span>
           </div>
           <button
@@ -1125,11 +1134,8 @@ function App() {
               setModal("profile");
             }}
           >
-            <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
-            <span>
-              <strong>{name}</strong>
-              <small>Любитель красивой игры</small>
-            </span>
+            <Avatar name={name} src={avatar} />
+            <strong>{name}</strong>
             <Settings2 size={17} />
           </button>
         </div>
@@ -1144,15 +1150,13 @@ function App() {
             >
               <Menu size={22} />
             </button>
-            <span>Клуб</span>
-            <ChevronRight size={13} />
             <strong>Игровая</strong>
           </div>
           <div className="top-actions">
             <span className="online-badge">
               <i />
               {connected
-                ? `${population} ${plural(population, "игрок", "игрока", "игроков")} в клубе`
+                ? `${population} ${plural(population, "игрок", "игрока", "игроков")} онлайн`
                 : "Офлайн-тренировка"}
             </span>
             <span className="top-divider" />
@@ -1164,72 +1168,56 @@ function App() {
               {sound ? <Volume2 size={19} /> : <VolumeX size={19} />}
             </button>
             <button
-              className="avatar top-avatar"
+              className="top-avatar"
               title="Профиль"
               onClick={() => {
                 setDraftName(name);
                 setModal("profile");
               }}
             >
-              {name.slice(0, 1).toUpperCase()}
+              <Avatar name={name} src={avatar} />
             </button>
           </div>
         </header>
         <main>
-          <section className="page-heading">
-            <div>
-              <div className="eyebrow">
-                <span />
-                ВРЕМЯ ХОРОШЕЙ ИГРЫ
-              </div>
-              <h1>
-                Встретимся у стола<span>.</span>
-              </h1>
-              <p>Точный удар. Приятная компания. Всё остальное подождёт.</p>
-            </div>
-            <button className="quiet-link" onClick={() => setModal("rules")}>
-              Впервые здесь? <ArrowUpRight size={17} />
-            </button>
-          </section>
           <div className="game-layout">
             <section className={`table-card ${expanded ? "is-expanded" : ""}`}>
               <div className="table-card-heading">
-                <div className="table-title">
-                  <span className="table-dot" />
-                  <h2>
-                    {mode === "practice"
-                      ? "Твой тренировочный стол"
-                      : mode === "searching"
-                        ? "Ищем хорошую компанию"
-                        : players.length < 2
-                          ? "Стол для своих"
-                          : "Игра началась"}
-                  </h2>
+                <div className="versus">
+                  <span
+                    className={`versus-side${mode !== "practice" && canAim && !isWaiting ? " is-turn" : ""}`}
+                  >
+                    <Avatar
+                      name={players[myIndex]?.name || name}
+                      src={players[myIndex]?.avatar || avatar}
+                    />
+                    <b>{players[myIndex]?.name || name}</b>
+                  </span>
+                  {mode !== "practice" && (
+                    <>
+                      <span className="versus-mark">VS</span>
+                      <span
+                        className={`versus-side${!canAim && !isWaiting ? " is-turn" : ""}`}
+                      >
+                        <Avatar
+                          name={players[1 - myIndex]?.name || "Соперник"}
+                          src={players[1 - myIndex]?.avatar}
+                        />
+                        <b>{players[1 - myIndex]?.name || "Соперник"}</b>
+                      </span>
+                    </>
+                  )}
                 </div>
                 <span className="mode-tag">
                   {mode === "practice"
-                    ? "ПРАКТИКА"
+                    ? "ТРЕНИРОВКА"
                     : code
                       ? "С ДРУГОМ"
                       : "ОНЛАЙН"}
                 </span>
               </div>
-              <div className="table-subheading">
-                <span>
-                  {mode === "practice"
-                    ? "Никакой спешки. Только ты и следующий удар."
-                    : players.length === 2
-                      ? `${players[0].name}  ·  ${players[1].name}`
-                      : "Твой следующий соперник уже где-то рядом."}
-                </span>
-                <span className="table-number">СТОЛ № 01</span>
-              </div>
               <div className="table-stage">
                 <div className="stage-topline">
-                  <span className="view-label">
-                    <span className="tiny-square" />
-                    3D · ЖИВАЯ ФИЗИКА
-                  </span>
                   <button
                     className="view-help"
                     title={expanded ? "Свернуть стол" : "Развернуть стол"}
@@ -1253,18 +1241,6 @@ function App() {
                   resetKey={resetKey}
                   strokeRef={strokeRef}
                 />
-                {!isWaiting && g.winner === null && (
-                  <div className="table-hint">
-                    <Crosshair size={13} />
-                    {g.moving
-                      ? "Хороший удар начинается с точности"
-                      : g.shots > 0
-                        ? g.message
-                        : mode === "online" && !canAim
-                          ? "Соперник выбирает направление"
-                          : "Проведи по столу — повернёшь кий, затем «Ударить»"}
-                  </div>
-                )}
                 {isWaiting && (
                   <div className="table-overlay">
                     <div className="waiting-card">
@@ -1444,20 +1420,6 @@ function App() {
               </div>
             </section>
             <aside className="match-panel">
-              <div className="panel-eyebrow">
-                <span className="live-dot" />
-                ОНЛАЙН-БИЛЬЯРД
-              </div>
-              <h2>
-                Хорошая игра
-                <br />
-                начинается здесь.
-              </h2>
-              <p className="panel-description">
-                Знакомый бильярд.
-                <br />
-                Новые соперники. Твой ритм.
-              </p>
               <div className="game-choice">
                 <div className="game-choice-icon">
                   <BallIcon />
@@ -1473,22 +1435,6 @@ function App() {
                 >
                   <ChevronDown size={17} />
                 </button>
-              </div>
-              <div className="match-details">
-                <div>
-                  <span>
-                    <Users size={15} />
-                    Соперник
-                  </span>
-                  <strong>Случайный игрок</strong>
-                </div>
-                <div>
-                  <span>
-                    <ShieldCheck size={15} />
-                    Ставки
-                  </span>
-                  <strong>Только интерес</strong>
-                </div>
               </div>
               <button
                 className="primary-button find-button"
@@ -1519,90 +1465,14 @@ function App() {
                     ? "Сервер готов. Можно играть."
                     : "Тренируйся, пока подключаемся"}
               </div>
-              <div className="panel-separator">
-                <span>или играй со своими</span>
-              </div>
+              <div className="panel-separator" />
               <button className="friend-button" onClick={openFriends}>
                 <Users size={17} />
                 Пригласить друга
                 <ArrowUpRight size={17} />
               </button>
-              <div className="fair-play">
-                <ShieldCheck size={20} />
-                <p>
-                  Без ставок и лишнего шума.
-                  <br />
-                  <strong>Только удовольствие от игры.</strong>
-                </p>
-              </div>
             </aside>
           </div>
-          <section className="next-section">
-            <div className="section-heading">
-              <h2>У каждого свой стиль игры</h2>
-              <span>
-                Найди свой <ArrowDownLeft size={15} />
-              </span>
-            </div>
-            <div className="feature-grid">
-              <button
-                className="feature-card training-card"
-                onClick={() => {
-                  if (mode !== "practice") setModal("leave");
-                  else {
-                    resetPractice();
-                    notify("Свежая расстановка готова. Попробуй новый удар!");
-                  }
-                }}
-              >
-                <div className="feature-icon">
-                  <Crosshair size={23} />
-                </div>
-                <span className="feature-content">
-                  <strong>Наедине со столом</strong>
-                  <span>Отточи удар. Почувствуй игру.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ТРЕНИРОВКА</span>
-              </button>
-              <button
-                className="feature-card friends-card"
-                onClick={openFriends}
-              >
-                <div className="feature-icon">
-                  <Users size={23} />
-                </div>
-                <span className="feature-content">
-                  <strong>Свои люди. Свой стол.</strong>
-                  <span>Пригласи друга — остальное готово.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ИГРА С ДРУГОМ</span>
-              </button>
-              <button
-                className="feature-card rules-card"
-                onClick={() => setModal("rules")}
-              >
-                <div className="feature-icon">
-                  <Sparkles size={22} />
-                </div>
-                <span className="feature-content">
-                  <strong>От первого удара</strong>
-                  <span>Всё, что нужно знать для начала.</span>
-                </span>
-                <ArrowUpRight className="feature-arrow" size={20} />
-                <span className="feature-label">ПРАВИЛА ЗА МИНУТУ</span>
-              </button>
-            </div>
-          </section>
-          <footer>
-            <span className="footer-brand">луза.</span>
-            <span>Хорошая компания. Точная игра.</span>
-            <span className="footer-right">
-              <span />
-              Создано для красивых партий
-            </span>
-          </footer>
         </main>
       </div>
       {overlays}

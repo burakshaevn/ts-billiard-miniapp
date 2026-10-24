@@ -21,8 +21,9 @@ import {
   X,
 } from "lucide-react";
 import Table from "./Table";
+import Avatar from "./Avatar";
 import { BALL_COLORS } from "./balls";
-import BallIcon from "./BallIcon";
+import { LOGO_LARGE_URL } from "./config";
 import { type Game } from "../shared/game";
 import type { CueStroke } from "../shared/rendering";
 
@@ -46,7 +47,7 @@ export type MiniProps = {
   canAim: boolean;
   isWaiting: boolean;
   mode: "practice" | "searching" | "online";
-  players: { id: string; name: string }[];
+  players: { id: string; name: string; avatar?: string }[];
   myIndex: number;
   code: string;
   connected: boolean;
@@ -127,6 +128,11 @@ export default function MiniApp(p: MiniProps) {
                 <div
                   className={`mini-team${myTurn && !g.moving ? " is-active" : ""}`}
                 >
+                  <Avatar
+                    className="mini-avatar"
+                    name={p.players[p.myIndex]?.name || "Ты"}
+                    src={p.players[p.myIndex]?.avatar}
+                  />
                   <span className="mini-team-name">
                     {p.players[p.myIndex]?.name || "Ты"}
                   </span>
@@ -148,6 +154,11 @@ export default function MiniApp(p: MiniProps) {
                   <span className="mini-team-name">
                     {p.players[1 - p.myIndex]?.name || "Соперник"}
                   </span>
+                  <Avatar
+                    className="mini-avatar"
+                    name={p.players[1 - p.myIndex]?.name || "Соперник"}
+                    src={p.players[1 - p.myIndex]?.avatar}
+                  />
                 </div>
               </>
             )}
@@ -250,16 +261,12 @@ export default function MiniApp(p: MiniProps) {
   return (
     <div className="mini-app mini-app-lobby">
       <header className="mini-bar">
-        <span className="mini-brand">
-          <span className="mini-brand-ball">8</span>
-          луза
-        </span>
         <span className={`mini-online ${p.connected ? "live" : ""}`}>
           <i />
           {soon
             ? "Онлайн позже"
             : p.connected
-              ? `${p.population} в клубе`
+              ? `${p.population} онлайн`
               : "Подключаемся…"}
         </span>
         <button
@@ -271,9 +278,8 @@ export default function MiniApp(p: MiniProps) {
         </button>
       </header>
       <div className="mini-hero">
-        <BallIcon />
-        <h1>Пул «Восьмёрка»</h1>
-        <p>1 на 1, без ставок и лишнего</p>
+        <img className="mini-logo" src={LOGO_LARGE_URL} alt="" />
+        <h1>Amazing Pool</h1>
       </div>
       {p.isWaiting ? (
         <div className="mini-searching">

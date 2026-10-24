@@ -19,10 +19,8 @@ test("mini app on a phone: menu, practice table, online match", async ({
   const errors: string[] = [];
   a.on("pageerror", (e) => errors.push(e.message));
   await a.goto("/");
-  await expect(
-    a.getByRole("heading", { name: "Пул «Восьмёрка»" }),
-  ).toBeVisible();
-  await expect(a.getByText("в клубе")).toBeVisible();
+  await expect(a.getByRole("heading", { name: "Amazing Pool" })).toBeVisible();
+  await expect(a.getByText(/\d+ онлайн/)).toBeVisible();
   // The club page furniture must not be part of the Mini App layout.
   await expect(a.locator(".sidebar")).toHaveCount(0);
   await expect(a.locator(".match-panel")).toHaveCount(0);
@@ -50,9 +48,7 @@ test("mini app on a phone: menu, practice table, online match", async ({
   expect(chrome!.x).toBeLessThan(60);
   expect(chrome!.y).toBe(0);
   await a.getByRole("button", { name: "Назад в меню" }).click();
-  await expect(
-    a.getByRole("heading", { name: "Пул «Восьмёрка»" }),
-  ).toBeVisible();
+  await expect(a.getByRole("heading", { name: "Amazing Pool" })).toBeVisible();
 
   await a.getByRole("button", { name: /Играть онлайн/ }).click();
   await expect(a.getByText("Ищем соперника")).toBeVisible();
@@ -69,9 +65,7 @@ test("mini app on a phone: menu, practice table, online match", async ({
   await pullCue(a, 45);
   await expect(b.getByText("Шары в движении")).toBeVisible();
   await b.close();
-  await expect(
-    a.getByRole("heading", { name: "Пул «Восьмёрка»" }),
-  ).toBeVisible();
+  await expect(a.getByRole("heading", { name: "Amazing Pool" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -114,4 +108,58 @@ test("practice-only build: no server, no failed connections, balls come to rest"
   expect(sockets.filter((url) => url.endsWith("/ws"))).toEqual([]);
   expect(errors).toEqual([]);
   await page.goto("/?server=auto");
+});
+
+test("telegram photos of both players sit over the table", async ({
+  page: a,
+  context,
+}) => {
+  // A 1x1 PNG stands in for the Telegram CDN, which is unreachable from CI.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await context.route("https://cdn.telegram.test/**", (route) =>
+    route.fulfill({ status: 200, contentType: "image/png", body: png }),
+  );
+  const mock = ([n, p]: string[]) => {
+    window.Telegram = {
+      WebApp: {
+        ready: () => {},
+        expand: () => {},
+        isVersionAtLeast: () => true,
+        initDataUnsafe: { user: { first_name: n, photo_url: p || undefined } },
+        viewportStableHeight: 800,
+        contentSafeAreaInset: { top: 0, bottom: 0, left: 0, right: 0 },
+        BackButton: {
+          show: () => {},
+          hide: () => {},
+          onClick: () => {},
+          offClick: () => {},
+        },
+      },
+    };
+  };
+
+  await a.addInitScript(mock, ["Лена", "https://cdn.telegram.test/lena.png"]);
+  const b = await context.newPage();
+  // The second player has no photo: the name letter has to stand in for it.
+  await b.addInitScript(mock, ["Игорь", ""]);
+  await a.goto("/");
+  await b.goto("/");
+  await a.getByRole("button", { name: /Играть онлайн/ }).click();
+  await b.getByRole("button", { name: /Играть онлайн/ }).click();
+  await expect(a.locator(".mini-stage canvas")).toBeVisible();
+
+  // Both names are over the table, so it is clear who is playing whom.
+  await expect(a.locator(".mini-team-name")).toHaveText(["Лена", "Игорь"]);
+  await expect(b.locator(".mini-team-name")).toHaveText(["Игорь", "Лена"]);
+  // Lena's photo travels to her opponent's screen; Igor falls back to "И".
+  await expect(a.locator(".mini-avatar img")).toHaveCount(1);
+  await expect(b.locator(".mini-avatar img")).toHaveCount(1);
+  await expect(
+    b.locator(".mini-team.is-right .mini-avatar img"),
+  ).toHaveAttribute("src", "https://cdn.telegram.test/lena.png");
+  await expect(a.locator(".mini-team.is-right .mini-avatar")).toHaveText("И");
+  await b.close();
 });

@@ -11,6 +11,8 @@ const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 2048 });
 type Client = {
   id: string;
   name: string;
+  /** Telegram profile photo, shown next to the name over the table. */
+  avatar?: string;
   ws: WebSocket;
   room?: string;
   alive: boolean;
@@ -38,7 +40,11 @@ function state(r: Room) {
     send(c, {
       type: "state",
       game: r.game,
-      players: r.players.map((p) => ({ id: p.id, name: p.name })),
+      players: r.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        avatar: p.avatar,
+      })),
       yourIndex: i,
       code: r.code,
       private: r.private,
@@ -105,6 +111,15 @@ wss.on("connection", (ws) => {
           typeof m.name === "string"
             ? m.name.trim().slice(0, 24) || "Игрок"
             : "Игрок";
+        // Only a plain https image URL is passed on to the other player: the
+        // avatar ends up in someone else's <img src>, so no javascript: or
+        // data: payloads and no unbounded strings.
+        c.avatar =
+          typeof m.avatar === "string" &&
+          /^https:\/\/[\w.-]+\/[\w./%+-]*$/.test(m.avatar) &&
+          m.avatar.length <= 300
+            ? m.avatar
+            : undefined;
         return;
       }
       // Leaving is never throttled and never counts as a throttled action: a

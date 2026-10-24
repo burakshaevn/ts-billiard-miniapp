@@ -8,11 +8,33 @@ import {
 } from "../shared/table";
 
 /**
- * Flat, glare-free table in the style of the mobile pool apps: one bright
- * blue cloth, graphite rails, silver pocket collars, white sights. No wood,
- * no brass, no mirror highlights — a shiny rail threw a white streak across
- * the cloth and made the balls hard to read on a phone.
+ * Flat, glare-free table in the style of the mobile pool apps. No wood, no
+ * brass, no mirror highlights — a shiny rail threw a white streak across the
+ * cloth and made the balls hard to read on a phone.
+ *
+ * Every colour of the table lives here, so the look is one edit away. The
+ * woodwork is the wine black of the Amazing Pool logo and the collars are its
+ * cream; the cloth stays blue on purpose — seven of the fifteen balls are red,
+ * orange or maroon and they disappear on a cherry cloth. To try one anyway,
+ * give `cloth*` a dark red ramp (e.g. #7e1c33 → #2c0912) and `cushion` a
+ * slightly lighter shade of it.
  */
+export const TABLE_COLORS = {
+  clothCenter: "#54c2e9",
+  clothMid: "#3e9fd1",
+  clothEdge: "#2d7cae",
+  clothCorner: "#21587f",
+  cushion: "#3a89b8",
+  /** Rails and the lip under them: the dark wine frame of the logo. */
+  rail: "#3c1a23",
+  base: "#150a0e",
+  /** Pocket collars and sights: the cream of the logo's ball numbers. */
+  collar: "#e9dac6",
+  sight: "#f1e3d3",
+  pocketMouth: "#0c0e10",
+  pocketBottom: "#070809",
+};
+
 export const RAIL_TOP = 0.26;
 
 function roundedRectangle(w: number, d: number, r: number) {
@@ -106,10 +128,10 @@ function clothTexture() {
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
   const glow = ctx.createRadialGradient(w / 2, h / 2, 30, w / 2, h / 2, 640);
-  glow.addColorStop(0, "#54c2e9");
-  glow.addColorStop(0.4, "#3e9fd1");
-  glow.addColorStop(0.75, "#2d7cae");
-  glow.addColorStop(1, "#21587f");
+  glow.addColorStop(0, TABLE_COLORS.clothCenter);
+  glow.addColorStop(0.4, TABLE_COLORS.clothMid);
+  glow.addColorStop(0.75, TABLE_COLORS.clothEdge);
+  glow.addColorStop(1, TABLE_COLORS.clothCorner);
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
   // Head string, exactly where the cue ball is spotted after a scratch.
@@ -180,10 +202,10 @@ export function createTableBody(scene: THREE.Scene) {
   // place flickered against each other around every pocket.
   const base = roundedRectangle(12.2, 6.8, 0.42);
   base.holes.push(outline(CUSHION_BACK + 0.07, CAP + 0.05));
-  add(extrude(base, 0.52), flat("#15171b"), -0.3);
+  add(extrude(base, 0.52), flat(TABLE_COLORS.base), -0.3);
   const rails = roundedRectangle(12, 6.6, 0.4);
   rails.holes.push(hole);
-  add(extrude(rails, 0.36), flat("#343a40"), -0.1);
+  add(extrude(rails, 0.36), flat(TABLE_COLORS.rail), -0.1);
   const felt = new THREE.MeshLambertMaterial({ map: clothTexture() });
   const feltGeometry = new THREE.ShapeGeometry(opening(), 56);
   feltGeometry.rotateX(-Math.PI / 2);
@@ -191,15 +213,15 @@ export function createTableBody(scene: THREE.Scene) {
   // Lighter than the cloth it meets: that contrast is what makes the band of
   // cushion visible all the way round the table.
   const cushionMat = new THREE.MeshLambertMaterial({
-    color: "#3a89b8",
+    color: TABLE_COLORS.cushion,
     side: THREE.DoubleSide,
   });
   CUSHIONS.forEach((c) =>
     add(cushionGeometry([c.a, c.b, c.backB, c.backA]), cushionMat),
   );
-  const collar = flat("#aeb4ba");
+  const collar = flat(TABLE_COLORS.collar);
   const wellMat = new THREE.MeshBasicMaterial({
-    color: "#0c0e10",
+    color: TABLE_COLORS.pocketMouth,
     side: THREE.BackSide,
   });
   for (const [x, z] of POCKETS) {
@@ -225,14 +247,14 @@ export function createTableBody(scene: THREE.Scene) {
     well.position.z = z;
     const bottom = add(
       new THREE.CircleGeometry(0.205, 28),
-      new THREE.MeshBasicMaterial({ color: "#070809" }),
+      new THREE.MeshBasicMaterial({ color: TABLE_COLORS.pocketBottom }),
       -0.58,
     );
     bottom.rotation.x = -Math.PI / 2;
     bottom.position.x = x;
     bottom.position.z = z;
   }
-  const sight = new THREE.MeshBasicMaterial({ color: "#e9edf0" });
+  const sight = new THREE.MeshBasicMaterial({ color: TABLE_COLORS.sight });
   const sightGeometry = new THREE.CircleGeometry(0.055, 20);
   const dot = (x: number, z: number) => {
     const m = add(sightGeometry, sight, RAIL_TOP + 0.004);
